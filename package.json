@@ -1,0 +1,45 @@
+{
+  "name": "@sha3/tick-collector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --import tsx src/index.ts",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm run test",
+    "fix": "npm run lint:fix && npm run format:write",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format:check": "prettier --check .",
+    "format:write": "prettier --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs",
+    "publish": "node scripts/release-publish.mjs"
+  },
+  "devDependencies": {
+    "@sha3/code-standards": "^0.1.0",
+    "@types/node": "^22.13.10",
+    "eslint": "^9.20.1",
+    "prettier": "^3.5.3",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.56.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sha3dev/tick-collector"
+  },
+  "homepage": "https://github.com/sha3dev/tick-collector#readme",
+  "bugs": {
+    "url": "https://github.com/sha3dev/tick-collector/issues"
+  },
+  "codeStandards": {
+    "template": "node-service",
+    "profilePath": null,
+    "withAiAdapters": true,
+    "lastRefreshWith": "0.1.19"
+  },
+  "dependencies": {
+    "@sha3/crypto": "^0.4.0",
+    "@sha3/polymarket": "^0.4.0"
+  }
+}
