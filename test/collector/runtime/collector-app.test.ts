@@ -6,55 +6,57 @@ import { InvalidCollectorSourcesError } from "../../../src/collector/errors/inva
 import { PolymarketFeedAdapter } from "../../../src/collector/polymarket/polymarket-feed-adapter.ts";
 import { CollectorApp } from "../../../src/collector/runtime/collector-app.ts";
 
-class FakeStorage {
-  public readonly events: string[] = [];
+type FakeStorage = { events: string[]; start: () => Promise<void>; stop: () => Promise<void> };
 
-  public async start(): Promise<void> {
-    this.events.push("storage-start");
-  }
+type FakeCoalescer = { events: string[]; flushReady: () => Promise<void>; flushAll: () => Promise<void> };
 
-  public async stop(): Promise<void> {
-    this.events.push("storage-stop");
-  }
+type FakeAdapter = { start: () => Promise<void>; stop: () => Promise<void> };
+
+function createFakeStorage(): FakeStorage {
+  const events: string[] = [];
+  const fakeStorage: FakeStorage = {
+    events,
+    start: async (): Promise<void> => {
+      events.push("storage-start");
+    },
+    stop: async (): Promise<void> => {
+      events.push("storage-stop");
+    }
+  };
+  return fakeStorage;
 }
 
-class FakeCoalescer {
-  public readonly events: string[] = [];
-
-  public async flushReady(): Promise<void> {
-    this.events.push("coalescer-flush-ready");
-  }
-
-  public async flushAll(): Promise<void> {
-    this.events.push("coalescer-flush-all");
-  }
+function createFakeCoalescer(): FakeCoalescer {
+  const events: string[] = [];
+  const fakeCoalescer: FakeCoalescer = {
+    events,
+    flushReady: async (): Promise<void> => {
+      events.push("coalescer-flush-ready");
+    },
+    flushAll: async (): Promise<void> => {
+      events.push("coalescer-flush-all");
+    }
+  };
+  return fakeCoalescer;
 }
 
-class FakeAdapter {
-  private readonly events: string[];
-  private readonly startLabel: string;
-  private readonly stopLabel: string;
-
-  public constructor(events: string[], startLabel: string, stopLabel: string) {
-    this.events = events;
-    this.startLabel = startLabel;
-    this.stopLabel = stopLabel;
-  }
-
-  public async start(): Promise<void> {
-    this.events.push(this.startLabel);
-  }
-
-  public async stop(): Promise<void> {
-    this.events.push(this.stopLabel);
-  }
+function createFakeAdapter(events: string[], startLabel: string, stopLabel: string): FakeAdapter {
+  const fakeAdapter: FakeAdapter = {
+    start: async (): Promise<void> => {
+      events.push(startLabel);
+    },
+    stop: async (): Promise<void> => {
+      events.push(stopLabel);
+    }
+  };
+  return fakeAdapter;
 }
 
 test("collector app starts and stops in expected order with optional adapters", async () => {
   const events: string[] = [];
-  const storage = new FakeStorage();
-  const coalescer = new FakeCoalescer();
-  const polymarketAdapter = new FakeAdapter(events, "polymarket-start", "polymarket-stop");
+  const storage = createFakeStorage();
+  const coalescer = createFakeCoalescer();
+  const polymarketAdapter = createFakeAdapter(events, "polymarket-start", "polymarket-stop");
   const app = new CollectorApp({
     storage: storage as never,
     coalescer: coalescer as never,

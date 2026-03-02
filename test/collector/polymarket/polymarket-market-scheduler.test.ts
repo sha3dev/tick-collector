@@ -3,45 +3,58 @@ import { test } from "node:test";
 
 import { PolymarketMarketScheduler } from "../../../src/collector/polymarket/polymarket-market-scheduler.ts";
 
-class FakeMarketsService {
-  public readonly calls: { window: string; date: Date }[] = [];
+type FakeMarketsService = {
+  calls: { window: string; date: Date }[];
+  loadCryptoWindowMarkets: (options: { date: Date; window: "5m" | "15m"; symbols: ("btc" | "eth" | "sol" | "xrp")[] }) => Promise<unknown[]>;
+};
 
-  public async loadCryptoWindowMarkets(options: { date: Date; window: "5m" | "15m"; symbols: ("btc" | "eth" | "sol" | "xrp")[] }) {
-    this.calls.push({ window: options.window, date: options.date });
-    return [
-      {
-        id: "1",
-        slug: `${options.window}-slug`,
-        question: "q",
-        symbol: "btc" as const,
-        conditionId: "c",
-        outcomes: [],
-        clobTokenIds: ["asset-1", "asset-2"],
-        upTokenId: "asset-1",
-        downTokenId: "asset-2",
-        orderMinSize: 1,
-        orderPriceMinTickSize: null,
-        eventStartTime: "",
-        endDate: "",
-        start: new Date(),
-        end: new Date(),
-        raw: {}
-      }
-    ];
-  }
+type FakeStreamService = { subscriptions: string[][]; subscribe: (options: { assetIds: string[] }) => void };
+
+function createFakeMarketsService(): FakeMarketsService {
+  const calls: { window: string; date: Date }[] = [];
+  const service: FakeMarketsService = {
+    calls,
+    loadCryptoWindowMarkets: async (options): Promise<unknown[]> => {
+      calls.push({ window: options.window, date: options.date });
+      return [
+        {
+          id: "1",
+          slug: `${options.window}-slug`,
+          question: "q",
+          symbol: "btc" as const,
+          conditionId: "c",
+          outcomes: [],
+          clobTokenIds: ["asset-1", "asset-2"],
+          upTokenId: "asset-1",
+          downTokenId: "asset-2",
+          orderMinSize: 1,
+          orderPriceMinTickSize: null,
+          eventStartTime: "",
+          endDate: "",
+          start: new Date(),
+          end: new Date(),
+          raw: {}
+        }
+      ];
+    }
+  };
+  return service;
 }
 
-class FakeStreamService {
-  public readonly subscriptions: string[][] = [];
-
-  public subscribe(options: { assetIds: string[] }): void {
-    this.subscriptions.push(options.assetIds);
-  }
+function createFakeStreamService(): FakeStreamService {
+  const subscriptions: string[][] = [];
+  const service: FakeStreamService = {
+    subscriptions,
+    subscribe: (options): void => {
+      subscriptions.push(options.assetIds);
+    }
+  };
+  return service;
 }
 
 test("polymarket market scheduler subscribes current windows and schedules next boundaries", async () => {
-  const marketsService = new FakeMarketsService();
-  const streamService = new FakeStreamService();
+  const marketsService = createFakeMarketsService();
+  const streamService = createFakeStreamService();
   const scheduledTimeouts: number[] = [];
   const scheduler = PolymarketMarketScheduler.create({
     marketsService: marketsService as never,

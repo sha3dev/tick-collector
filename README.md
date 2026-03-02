@@ -4,6 +4,10 @@ Real-time market data collector for TensorFlow dataset generation.
 
 It connects to `@sha3/crypto` and `@sha3/polymarket`, subscribes continuously to crypto and Polymarket 5m/15m markets, and writes incremental compressed event logs (`.ndjson.gz`) to disk.
 
+## Why It Exists
+
+Training pipelines need reproducible, chronologically ordered market snapshots. This service provides a long-running ingestion process that normalizes multiple live feeds into one stable append-only event format.
+
 ## TL;DR (60s)
 
 ```bash
@@ -79,6 +83,29 @@ Manifest fields:
 2. Consume `.ndjson.gz` files from `data/journal` in chronological order.
 3. Use `ingestedAt` as canonical ordering key in your training export step.
 4. Use manifest files to speed up incremental dataset scans.
+
+### Install + Import
+
+```bash
+npm install @sha3/tick-collector
+```
+
+```ts
+import { buildCollectorApp, PersistedEventStream } from "@sha3/tick-collector";
+```
+
+### Embedding In Another Service
+
+```ts
+import { buildCollectorApp } from "@sha3/tick-collector";
+
+const app = buildCollectorApp("./data");
+await app.start();
+
+process.on("SIGINT", () => {
+  void app.stop();
+});
+```
 
 ## Public API Reference
 
@@ -182,3 +209,9 @@ Mandatory highlights:
 - Typed errors at boundaries.
 - Update tests for every behavior change.
 - Run `npm run check` before finalizing.
+
+## Troubleshooting
+
+- `Websocket/network errors`: verify outbound websocket access to crypto providers and Polymarket APIs.
+- `No output files`: ensure the process stays up long enough to hit flush intervals and that `CONFIG.COLLECTOR.enabledSources` is not empty.
+- `Integration test failures`: `test/collector/integration/live-collector.test.ts` depends on real-time upstream feeds and can fail during upstream outages.
