@@ -9,9 +9,9 @@ const CONFIG = {
     maxGzipPartBytes: 64 * 1024 * 1024
   },
   READER: {
-    defaultSources: { cryptoProviders: ["binance", "coinbase", "kraken", "okx"], includeChainlink: true, includePolymarket: true },
-    maxDistanceMs: 30_000,
-    orderbookLevels: 20,
+    defaultSources: ["binance", "coinbase", "kraken", "okx", "chainlink", "polymarket"],
+    maxDistanceMs: 1_000,
+    orderbookLevels: 5,
     tieBreakerPolicy: "prefer-past"
   }
 } as const;

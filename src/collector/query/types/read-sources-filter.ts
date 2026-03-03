@@ -8,7 +8,7 @@
  * @section imports:internals
  */
 
-// empty
+import type { CollectorSources } from "../../types/collector-sources.ts";
 
 /**
  * @section consts
@@ -20,4 +20,4 @@
  * @section types
  */
 
-export type ReadSourcesFilter = { cryptoProviders: string[]; includeChainlink: boolean; includePolymarket: boolean };
+export type ReadSourcesFilter = CollectorSources;

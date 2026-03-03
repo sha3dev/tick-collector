@@ -23,7 +23,7 @@ const MINUTES_TO_MS = 60_000;
 
 type SetTimeoutFn = (handler: () => void, timeoutMs: number) => NodeJS.Timeout;
 type ClearTimeoutFn = (timeout: NodeJS.Timeout) => void;
-type MarketContext = { symbol: CryptoSymbol | null; marketType: CryptoMarketWindow; marketStartAt: number };
+type MarketContext = { symbol: CryptoSymbol | null; marketType: CryptoMarketWindow; marketSlug: string; marketSide: "up" | "down"; marketStartAt: number };
 
 type PolymarketMarketSchedulerOptions = {
   marketsService: GammaMarketCatalogService;
@@ -130,7 +130,14 @@ export class PolymarketMarketScheduler {
 
     for (const market of markets) {
       for (const assetId of market.clobTokenIds) {
-        this.marketContextByAssetId.set(assetId, { symbol: market.symbol, marketType, marketStartAt: market.start.getTime() });
+        const marketSide = market.upTokenId === assetId ? "up" : "down";
+        this.marketContextByAssetId.set(assetId, {
+          symbol: market.symbol,
+          marketType,
+          marketSlug: market.slug,
+          marketSide,
+          marketStartAt: market.start.getTime()
+        });
         const shouldSubscribe = !this.subscribedAssetIds.has(assetId);
         if (shouldSubscribe) {
           this.subscribedAssetIds.add(assetId);

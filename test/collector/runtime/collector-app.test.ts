@@ -154,12 +154,12 @@ test("collector app create logs summary when coalescer emits closed window", asy
       // empty
     }
   };
-  let capturedOnWindowEmitted: ((summary: CoalescedWindowSummary) => void) | null = null;
+  let capturedOnWindowEmitted: ((summary: CoalescedWindowSummary, events: unknown[]) => void) | null = null;
 
   (EventCoalescer as unknown as { create: typeof EventCoalescer.create }).create = ((options: {
     intervalMs: number;
     onEmitMany: (events: unknown[]) => Promise<void>;
-    onWindowEmitted?: (summary: CoalescedWindowSummary) => void;
+    onWindowEmitted?: (summary: CoalescedWindowSummary, events: unknown[]) => void;
   }) => {
     capturedOnWindowEmitted = options.onWindowEmitted ?? null;
     return originalCoalescerCreate(options as Parameters<typeof EventCoalescer.create>[0]);
@@ -183,22 +183,29 @@ test("collector app create logs summary when coalescer emits closed window", asy
   assert.notEqual(capturedOnWindowEmitted, null);
   const onWindowEmitted =
     capturedOnWindowEmitted ??
-    ((_: CoalescedWindowSummary): void => {
+    ((_: CoalescedWindowSummary, __: unknown[]): void => {
       throw new Error("expected onWindowEmitted callback to be provided");
     });
-  onWindowEmitted({
-    bucketId: 3,
-    windowStartAt: 1500,
-    windowEndAt: 2000,
-    eventCount: 5,
-    eventTypeCounts: [
-      { eventType: "crypto.price", count: 2 },
-      { eventType: "polymarket.book", count: 3 }
+  onWindowEmitted({ bucketId: 3, windowStartAt: 1000, windowEndAt: 2000, eventCount: 3, eventTypeCounts: [{ eventType: "polymarket.book", count: 3 }] }, [
+    { source: "polymarket", eventType: "polymarket.book", marketType: "5m", marketSide: "up" },
+    { source: "polymarket", eventType: "polymarket.book", marketType: "5m", marketSide: "down" },
+    { source: "polymarket", eventType: "polymarket.book", marketType: "5m", marketSide: "up" }
+  ]);
+  assert.equal(messages.length, 0);
+  onWindowEmitted(
+    { bucketId: 599, windowStartAt: 299_500, windowEndAt: 300_000, eventCount: 2, eventTypeCounts: [{ eventType: "polymarket.price", count: 2 }] },
+    [
+      { source: "polymarket", eventType: "polymarket.price", marketType: "5m", marketSide: "up" },
+      { source: "polymarket", eventType: "polymarket.price", marketType: "5m", marketSide: "down" }
     ]
-  });
-  assert.equal(messages.length, 1);
-  assert.equal(
-    messages[0],
-    "[WINDOW] closed start=1500 end=2000 events=5 coverage=partial counts=polymarket.price:0,polymarket.book:3 missing=polymarket.price extra=crypto.price"
   );
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.includes("[WINDOW:5m] closed start=0 end=300000 events=5"), true);
+  assert.equal(messages[0]?.includes("coverage=complete"), true);
+  assert.equal(messages[0]?.includes("counts=polymarket.price:2,polymarket.book:3"), true);
+  assert.equal(messages[0]?.includes("sources=crypto:0|polymarket:5"), true);
+  assert.equal(messages[0]?.includes("providers=binance:0|coinbase:0|kraken:0|okx:0|chainlink:0|unknown:0"), true);
+  assert.equal(messages[0]?.includes("polymarketTypes=5m:5|15m:0|unknown:0"), true);
+  assert.equal(messages[0]?.includes("polymarketSides=up:3|down:2|unknown:0"), true);
+  assert.equal(messages[0]?.includes("polymarketOutcomes=price.up:1|price.down:1|price.unknown:0|book.up:2|book.down:1|book.unknown:0"), true);
 });

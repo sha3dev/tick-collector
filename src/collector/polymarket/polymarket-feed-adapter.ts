@@ -34,6 +34,8 @@ type PolymarketFeedAdapterOptions = {
   nextSequence: () => number;
 };
 
+type MarketEventClassKeyOptions = { eventType: MarketEvent["type"]; marketType: CryptoMarketWindow | null; marketStartAt: number | null; assetId: string };
+
 export class PolymarketFeedAdapter {
   /**
    * @section private:attributes
@@ -57,6 +59,7 @@ export class PolymarketFeedAdapter {
   private readonly envelopeFactory: EventEnvelopeFactory;
   private readonly clock: () => number;
   private readonly nextSequence: () => number;
+  private readonly eventIndexByClassKey: Map<string, number>;
 
   /**
    * @section public:properties
@@ -75,6 +78,7 @@ export class PolymarketFeedAdapter {
     this.envelopeFactory = options.envelopeFactory;
     this.clock = options.clock;
     this.nextSequence = options.nextSequence;
+    this.eventIndexByClassKey = new Map<string, number>();
     this.removeListener = null;
   }
 
@@ -122,15 +126,37 @@ export class PolymarketFeedAdapter {
 
   private async onEvent(event: MarketEvent): Promise<void> {
     const marketContext = this.scheduler.getMarketContext(event.assetId);
+    const marketEventIndex = this.nextMarketEventIndex({
+      eventType: event.type,
+      marketType: marketContext?.marketType ?? null,
+      marketStartAt: marketContext?.marketStartAt ?? null,
+      assetId: event.assetId
+    });
     const storedEvent = this.envelopeFactory.fromPolymarket({
       event,
       sequence: this.nextSequence(),
       ingestedAt: this.clock(),
       symbol: marketContext?.symbol ?? null,
       marketType: marketContext?.marketType ?? null,
-      marketStartAt: marketContext?.marketStartAt ?? null
+      marketSlug: marketContext?.marketSlug ?? null,
+      marketSide: marketContext?.marketSide ?? null,
+      marketStartAt: marketContext?.marketStartAt ?? null,
+      marketEventIndex
     });
     await this.eventHandler(storedEvent);
+  }
+
+  private toMarketEventClassKey(options: MarketEventClassKeyOptions): string {
+    const key = `${options.marketType ?? "na"}|${options.marketStartAt ?? "na"}|${options.eventType}|${options.assetId}`;
+    return key;
+  }
+
+  private nextMarketEventIndex(options: MarketEventClassKeyOptions): number {
+    const classKey = this.toMarketEventClassKey(options);
+    const currentIndex = this.eventIndexByClassKey.get(classKey) ?? -1;
+    const nextIndex = currentIndex + 1;
+    this.eventIndexByClassKey.set(classKey, nextIndex);
+    return nextIndex;
   }
 
   /**

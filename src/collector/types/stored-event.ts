@@ -30,7 +30,10 @@ export type StoredEvent = {
   symbol?: string;
   provider?: string;
   marketType?: CryptoMarketWindow;
+  marketSlug?: string;
+  marketSide?: "up" | "down";
   marketStartAt?: number;
+  marketEventIndex?: number;
   assetId?: string;
   payload: unknown;
 };

@@ -30,7 +30,9 @@ export type EventIndexCandidate = {
   provider?: string;
   symbol?: string;
   marketType?: string;
+  marketSlug?: string;
   marketStartAt?: number;
+  marketEventIndex?: number;
   assetId?: string;
 };
 
@@ -43,7 +45,9 @@ export type EventSelectionQuery = {
   provider?: string;
   symbol?: string;
   marketType?: string;
+  marketSlug?: string;
   marketStartAt?: number;
+  marketEventIndex?: number;
   assetId?: string;
   maxDistanceMs: number;
 };

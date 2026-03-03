@@ -79,6 +79,8 @@ test("polymarket market scheduler subscribes current windows and schedules next 
   const marketContext = scheduler.getMarketContext("asset-1");
   assert.equal(marketContext !== null, true);
   assert.equal(marketContext?.marketType, "15m");
+  assert.equal(marketContext?.marketSlug, "15m-slug");
+  assert.equal(marketContext?.marketSide, "up");
   assert.equal(marketContext?.symbol, "btc");
   assert.equal(typeof marketContext?.marketStartAt, "number");
   assert.deepEqual(

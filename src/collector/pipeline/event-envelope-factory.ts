@@ -30,7 +30,10 @@ type BuildPolymarketEventOptions = {
   ingestedAt: number;
   symbol: CryptoSymbol | null;
   marketType: CryptoMarketWindow | null;
+  marketSlug: string | null;
+  marketSide?: "up" | "down" | null;
   marketStartAt: number | null;
+  marketEventIndex: number | null;
 };
 
 export class EventEnvelopeFactory {
@@ -124,7 +127,10 @@ export class EventEnvelopeFactory {
       exchangeTs: options.event.date.getTime(),
       ...(options.symbol !== null ? { symbol: options.symbol } : {}),
       ...(options.marketType !== null ? { marketType: options.marketType } : {}),
+      ...(options.marketSlug !== null ? { marketSlug: options.marketSlug } : {}),
+      ...(options.marketSide !== undefined && options.marketSide !== null ? { marketSide: options.marketSide } : {}),
       ...(options.marketStartAt !== null ? { marketStartAt: options.marketStartAt } : {}),
+      ...(options.marketEventIndex !== null ? { marketEventIndex: options.marketEventIndex } : {}),
       assetId: options.event.assetId,
       payload: options.event
     };

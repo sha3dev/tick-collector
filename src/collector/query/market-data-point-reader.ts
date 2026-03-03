@@ -3,6 +3,7 @@
  */
 
 import { GammaMarketCatalogService, type PolymarketMarket } from "@sha3/polymarket";
+import type { CryptoProviderId } from "@sha3/crypto";
 import type { CryptoMarketWindow, CryptoSymbol } from "@sha3/polymarket";
 
 /**
@@ -13,6 +14,7 @@ import { InvalidReadRangeError } from "../errors/invalid-read-range-error.ts";
 import { PersistedEventReadError } from "../errors/persisted-event-read-error.ts";
 import { DatapointAssembler } from "./datapoint-assembler.ts";
 import { EventIndexRepository } from "./event-index-repository.ts";
+import type { CollectorSource } from "../types/collector-sources.ts";
 import type { EventSelectionQuery } from "./types/event-index-types.ts";
 import type { MarketDataPoint } from "./types/market-data-point.ts";
 import type { ReadDataPointOptions } from "./types/read-data-point-options.ts";
@@ -23,7 +25,7 @@ import type { ReadSourcesFilter } from "./types/read-sources-filter.ts";
  * @section consts
  */
 
-// empty
+const CRYPTO_EXCHANGE_PROVIDERS = ["binance", "coinbase", "kraken", "okx"] as const;
 
 /**
  * @section types
@@ -87,6 +89,8 @@ type NormalizedReadRangeOptions = {
   maxDistanceMs: number;
   orderbookLevels: number;
 };
+
+type SourceSplit = { cryptoProviders: CryptoProviderId[]; includeChainlink: boolean; includePolymarket: boolean };
 
 export class MarketDataPointReader {
   /**
@@ -156,14 +160,30 @@ export class MarketDataPointReader {
    */
 
   private normalizeSources(sources: ReadSourcesFilter | undefined): ReadSourcesFilter {
-    const normalized: ReadSourcesFilter = sources
-      ? { cryptoProviders: [...sources.cryptoProviders], includeChainlink: sources.includeChainlink, includePolymarket: sources.includePolymarket }
-      : {
-          cryptoProviders: [...this.defaultSources.cryptoProviders],
-          includeChainlink: this.defaultSources.includeChainlink,
-          includePolymarket: this.defaultSources.includePolymarket
-        };
+    const normalized: ReadSourcesFilter = sources ? [...sources] : [...this.defaultSources];
     return normalized;
+  }
+
+  private splitSources(sources: ReadSourcesFilter): SourceSplit {
+    const cryptoProviders: CryptoProviderId[] = [];
+    let includeChainlink = false;
+    let includePolymarket = false;
+    for (const source of sources) {
+      if (source === "chainlink") {
+        includeChainlink = true;
+      } else if (source === "polymarket") {
+        includePolymarket = true;
+      } else if (this.isCryptoExchangeProvider(source)) {
+        cryptoProviders.push(source);
+      }
+    }
+    const split: SourceSplit = { cryptoProviders, includeChainlink, includePolymarket };
+    return split;
+  }
+
+  private isCryptoExchangeProvider(source: CollectorSource): source is (typeof CRYPTO_EXCHANGE_PROVIDERS)[number] {
+    const isProvider = CRYPTO_EXCHANGE_PROVIDERS.includes(source as (typeof CRYPTO_EXCHANGE_PROVIDERS)[number]);
+    return isProvider;
   }
 
   private normalizeReadOptions(options: ReadDataPointOptions): NormalizedReadOptions {
@@ -389,6 +409,7 @@ export class MarketDataPointReader {
     let datapoint: MarketDataPoint | null = null;
     try {
       const normalized = this.normalizeReadOptions(options);
+      const sourceSplit = this.splitSources(normalized.sources);
       const market = await this.loadMarket(normalized.timestamp, normalized.symbol, normalized.marketType);
       const hasMarket = market !== null;
       if (hasMarket) {
@@ -399,14 +420,14 @@ export class MarketDataPointReader {
           timestamp: normalized.timestamp,
           symbol,
           maxDistanceMs: normalized.maxDistanceMs,
-          cryptoProviders: normalized.sources.cryptoProviders,
-          includeChainlink: normalized.sources.includeChainlink
+          cryptoProviders: sourceSplit.cryptoProviders,
+          includeChainlink: sourceSplit.includeChainlink
         });
         const cryptoOrderBookByProvider = await this.selectCryptoOrderbookEvents({
           timestamp: normalized.timestamp,
           symbol,
           maxDistanceMs: normalized.maxDistanceMs,
-          cryptoProviders: normalized.sources.cryptoProviders
+          cryptoProviders: sourceSplit.cryptoProviders
         });
         const polymarketSelections = await this.selectPolymarketEvents({
           timestamp: normalized.timestamp,
@@ -414,7 +435,7 @@ export class MarketDataPointReader {
           marketType,
           marketStartAt,
           maxDistanceMs: normalized.maxDistanceMs,
-          includePolymarket: normalized.sources.includePolymarket
+          includePolymarket: sourceSplit.includePolymarket
         });
         datapoint = this.assembler.assemble({
           timestamp: normalized.timestamp,
@@ -422,9 +443,9 @@ export class MarketDataPointReader {
           symbol,
           marketType,
           marketStartAt,
-          cryptoProviders: normalized.sources.cryptoProviders,
-          includeChainlink: normalized.sources.includeChainlink,
-          includePolymarket: normalized.sources.includePolymarket,
+          cryptoProviders: sourceSplit.cryptoProviders,
+          includeChainlink: sourceSplit.includeChainlink,
+          includePolymarket: sourceSplit.includePolymarket,
           orderbookLevels: normalized.orderbookLevels,
           cryptoPriceByProvider,
           cryptoOrderBookByProvider,

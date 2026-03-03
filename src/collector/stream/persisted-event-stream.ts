@@ -60,11 +60,7 @@ export class PersistedEventStream {
       options.reader ??
       MarketDataPointReader.create({
         folder: options.folder,
-        defaultSources: {
-          cryptoProviders: [...CONFIG.READER.defaultSources.cryptoProviders],
-          includeChainlink: CONFIG.READER.defaultSources.includeChainlink,
-          includePolymarket: CONFIG.READER.defaultSources.includePolymarket
-        },
+        defaultSources: [...CONFIG.READER.defaultSources],
         defaultMaxDistanceMs: CONFIG.READER.maxDistanceMs,
         defaultOrderbookLevels: CONFIG.READER.orderbookLevels
       });

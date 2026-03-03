@@ -110,7 +110,7 @@ function createReader(options: {
 }): MarketDataPointReader {
   const reader = MarketDataPointReader.create({
     folder: "data",
-    defaultSources: { cryptoProviders: ["binance", "coinbase"], includeChainlink: true, includePolymarket: true },
+    defaultSources: ["binance", "coinbase", "chainlink", "polymarket"],
     defaultMaxDistanceMs: options.maxDistanceMs ?? 30_000,
     defaultOrderbookLevels: options.orderbookLevels ?? 2,
     indexRepository: options.repository,
@@ -321,12 +321,7 @@ test("market data point reader reports partial coverage when events are missing"
   });
   const reader = createReader({ repository, marketsService: createFakeMarketsService(market) });
 
-  const datapoint = await reader.read({
-    timestamp: 120,
-    symbol: "eth",
-    marketType: "5m",
-    sources: { cryptoProviders: ["binance"], includeChainlink: false, includePolymarket: true }
-  });
+  const datapoint = await reader.read({ timestamp: 120, symbol: "eth", marketType: "5m", sources: ["binance", "polymarket"] });
 
   assert.equal(datapoint?.cryptoPricesBySource.binance, 2500);
   assert.equal(datapoint?.polymarket.upPrice, null);
@@ -375,12 +370,7 @@ test("market data point reader applies source filters and maxDistance", async ()
   });
   const reader = createReader({ repository, marketsService: createFakeMarketsService(market), maxDistanceMs: 10 });
 
-  const datapoint = await reader.read({
-    timestamp: 1_040,
-    symbol: "sol",
-    marketType: "5m",
-    sources: { cryptoProviders: ["coinbase"], includeChainlink: false, includePolymarket: false }
-  });
+  const datapoint = await reader.read({ timestamp: 1_040, symbol: "sol", marketType: "5m", sources: ["coinbase"] });
 
   assert.equal(datapoint?.cryptoPricesBySource.coinbase, null);
   assert.equal(datapoint?.coverage.missingFields.includes("crypto.price.coinbase"), true);
@@ -423,12 +413,7 @@ test("market data point reader uses indexed selections only (no full-scan contra
   const repository = createFakeRepository(() => null);
   const reader = createReader({ repository, marketsService: createFakeMarketsService(market) });
 
-  await reader.read({
-    timestamp: 1000,
-    symbol: "xrp",
-    marketType: "5m",
-    sources: { cryptoProviders: ["binance", "coinbase"], includeChainlink: true, includePolymarket: true }
-  });
+  await reader.read({ timestamp: 1000, symbol: "xrp", marketType: "5m", sources: ["binance", "coinbase", "chainlink", "polymarket"] });
 
   assert.equal(repository.calls.length, 8);
 });
@@ -472,14 +457,7 @@ test("market data point reader readRange returns datapoints across timestamps", 
   });
   const reader = createReader({ repository, marketsService: createFakeMarketsService(market) });
 
-  const points = await reader.readRange({
-    startTimestamp: 1_000,
-    endTimestamp: 1_200,
-    stepMs: 100,
-    symbol: "btc",
-    marketType: "5m",
-    sources: { cryptoProviders: ["binance"], includeChainlink: false, includePolymarket: false }
-  });
+  const points = await reader.readRange({ startTimestamp: 1_000, endTimestamp: 1_200, stepMs: 100, symbol: "btc", marketType: "5m", sources: ["binance"] });
 
   assert.equal(points.length, 3);
   assert.equal(points[0]?.timestamp, 1_000);

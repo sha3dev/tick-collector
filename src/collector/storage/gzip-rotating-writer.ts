@@ -208,7 +208,9 @@ export class GzipRotatingWriter {
           ...(event.provider !== undefined ? { provider: event.provider } : {}),
           ...(event.symbol !== undefined ? { symbol: event.symbol } : {}),
           ...(event.marketType !== undefined ? { marketType: event.marketType } : {}),
+          ...(event.marketSlug !== undefined ? { marketSlug: event.marketSlug } : {}),
           ...(event.marketStartAt !== undefined ? { marketStartAt: event.marketStartAt } : {}),
+          ...(event.marketEventIndex !== undefined ? { marketEventIndex: event.marketEventIndex } : {}),
           ...(event.assetId !== undefined ? { assetId: event.assetId } : {})
         };
         this.activePart.indexCandidates.push(candidate);

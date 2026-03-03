@@ -24,7 +24,7 @@ import type { CoalescedWindowEventTypeCount, CoalescedWindowSummary } from "./ty
 type EventCoalescerOptions = {
   intervalMs: number;
   onEmitMany: (events: StoredEvent[]) => Promise<void>;
-  onWindowEmitted?: (summary: CoalescedWindowSummary) => void;
+  onWindowEmitted?: (summary: CoalescedWindowSummary, events: StoredEvent[]) => void;
 };
 
 type BucketEventMap = Map<string, StoredEvent>;
@@ -48,7 +48,7 @@ export class EventCoalescer {
 
   private readonly intervalMs: number;
   private readonly onEmitMany: (events: StoredEvent[]) => Promise<void>;
-  private readonly onWindowEmitted: ((summary: CoalescedWindowSummary) => void) | null;
+  private readonly onWindowEmitted: ((summary: CoalescedWindowSummary, events: StoredEvent[]) => void) | null;
   private readonly buckets: Map<number, BucketEventMap>;
   private readonly emittingBucketIds: Set<number>;
 
@@ -129,7 +129,7 @@ export class EventCoalescer {
         if (hasEvents) {
           await this.onEmitMany(events);
           this.emitWindowSummary(bucketId, events);
-          this.buckets.delete(bucketId);
+          this.buckets.set(bucketId, new Map());
         }
       } finally {
         this.emittingBucketIds.delete(bucketId);
@@ -162,7 +162,7 @@ export class EventCoalescer {
   private emitWindowSummary(bucketId: number, events: StoredEvent[]): void {
     if (this.onWindowEmitted) {
       const summary = this.toWindowSummary(bucketId, events);
-      this.onWindowEmitted(summary);
+      this.onWindowEmitted(summary, events);
     }
   }
 

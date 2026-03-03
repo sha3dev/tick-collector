@@ -142,9 +142,20 @@ export class EventIndexRepository {
     const providerMatches = query.provider === undefined || candidate.provider === query.provider;
     const symbolMatches = query.symbol === undefined || candidate.symbol === query.symbol;
     const marketTypeMatches = query.marketType === undefined || candidate.marketType === query.marketType;
+    const marketSlugMatches = query.marketSlug === undefined || candidate.marketSlug === query.marketSlug;
     const marketStartAtMatches = query.marketStartAt === undefined || candidate.marketStartAt === query.marketStartAt;
+    const marketEventIndexMatches = query.marketEventIndex === undefined || candidate.marketEventIndex === query.marketEventIndex;
     const assetIdMatches = query.assetId === undefined || candidate.assetId === query.assetId;
-    const isMatch = sourceMatches && eventTypeMatches && providerMatches && symbolMatches && marketTypeMatches && marketStartAtMatches && assetIdMatches;
+    const isMatch =
+      sourceMatches &&
+      eventTypeMatches &&
+      providerMatches &&
+      symbolMatches &&
+      marketTypeMatches &&
+      marketSlugMatches &&
+      marketStartAtMatches &&
+      marketEventIndexMatches &&
+      assetIdMatches;
     return isMatch;
   }
 

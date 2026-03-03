@@ -192,7 +192,7 @@ const datapoint = await stream.read({
   timestamp: Date.now(),
   symbol: "btc",
   marketType: "5m",
-  sources: { cryptoProviders: ["binance", "coinbase", "kraken", "okx"], includeChainlink: true, includePolymarket: true },
+  sources: ["binance", "coinbase", "kraken", "okx", "chainlink", "polymarket"],
   maxDistanceMs: 30_000,
   orderbookLevels: 20
 });
@@ -232,7 +232,7 @@ console.log("points", range.length);
 - `CONFIG.COLLECTOR.maxGzipPartBytes`
   - Size threshold for gzip part rotation.
 - `CONFIG.READER.defaultSources`
-  - Default sources for datapoint reads (crypto providers + chainlink/polymarket toggles).
+  - Default sources for datapoint reads (same flat source format as `enabledSources`).
 - `CONFIG.READER.maxDistanceMs`
   - Maximum temporal distance allowed for nearest-event selection.
 - `CONFIG.READER.orderbookLevels`
