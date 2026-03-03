@@ -11,7 +11,9 @@ test("event envelope factory maps crypto and polymarket events", () => {
   const polymarketEvent = factory.fromPolymarket({
     sequence: 2,
     ingestedAt: 200,
-    marketSlug: "btc-updown-5m",
+    symbol: "btc",
+    marketType: "5m",
+    marketStartAt: 1700000000000,
     event: { type: "book", source: "polymarket", assetId: "1", index: 1, date: new Date(190), bids: [], asks: [] }
   });
 
@@ -22,7 +24,9 @@ test("event envelope factory maps crypto and polymarket events", () => {
 
   assert.equal(polymarketEvent.source, "polymarket");
   assert.equal(polymarketEvent.eventType, "polymarket.book");
-  assert.equal(polymarketEvent.marketSlug, "btc-updown-5m");
+  assert.equal(polymarketEvent.symbol, "btc");
+  assert.equal(polymarketEvent.marketType, "5m");
+  assert.equal(polymarketEvent.marketStartAt, 1700000000000);
   assert.equal(polymarketEvent.ingestedAt, 200);
   assert.equal(polymarketEvent.exchangeTs, 190);
 });

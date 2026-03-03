@@ -27,10 +27,11 @@ export type EventIndexCandidate = {
   lineIndex: number;
   source: StoredEvent["source"];
   eventType: string;
-  provider: string | null;
-  symbol: string | null;
-  marketSlug: string | null;
-  assetId: string | null;
+  provider?: string;
+  symbol?: string;
+  marketType?: string;
+  marketStartAt?: number;
+  assetId?: string;
 };
 
 export type EventIndexFile = { candidates: EventIndexCandidate[] };
@@ -39,9 +40,10 @@ export type EventSelectionQuery = {
   timestamp: number;
   eventType: string;
   source: StoredEvent["source"];
-  provider?: string | null;
-  symbol?: string | null;
-  marketSlug?: string | null;
-  assetId?: string | null;
+  provider?: string;
+  symbol?: string;
+  marketType?: string;
+  marketStartAt?: number;
+  assetId?: string;
   maxDistanceMs: number;
 };

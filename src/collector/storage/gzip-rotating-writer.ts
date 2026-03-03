@@ -98,23 +98,25 @@ export class GzipRotatingWriter {
    * @section private:methods
    */
 
-  private toTimeParts(ingestedAt: number): { year: string; month: string; day: string; hour: string } {
+  private toTimeLabel(ingestedAt: number): string {
     const date = new Date(ingestedAt);
     const year = String(date.getUTCFullYear());
     const month = String(date.getUTCMonth() + 1).padStart(2, "0");
     const day = String(date.getUTCDate()).padStart(2, "0");
     const hour = String(date.getUTCHours()).padStart(2, "0");
-    const parts = { year, month, day, hour };
-    return parts;
+    const minute = String(date.getUTCMinutes()).padStart(2, "0");
+    const second = String(date.getUTCSeconds()).padStart(2, "0");
+    const label = `${year}${month}${day}-${hour}${minute}${second}-${ingestedAt}`;
+    return label;
   }
 
   private buildPartPaths(ingestedAt: number): { partPath: string; manifestPath: string; indexPath: string } {
-    const parts = this.toTimeParts(ingestedAt);
-    const fileName = `part-${String(this.partCounter).padStart(8, "0")}.ndjson.gz`;
+    const timeLabel = this.toTimeLabel(ingestedAt);
+    const fileName = `part-${String(this.partCounter).padStart(8, "0")}-${timeLabel}.ndjson.gz`;
     const manifestFileName = fileName.replace(".ndjson.gz", ".manifest.json");
     const indexFileName = fileName.replace(".ndjson.gz", ".index.json");
-    const journalDir = path.join(this.options.outputDir, "journal", parts.year, parts.month, parts.day, parts.hour);
-    const manifestsDir = path.join(this.options.outputDir, "manifests", parts.year, parts.month, parts.day, parts.hour);
+    const journalDir = path.join(this.options.outputDir, "journal");
+    const manifestsDir = path.join(this.options.outputDir, "manifests");
     const partPath = path.join(journalDir, fileName);
     const manifestPath = path.join(manifestsDir, manifestFileName);
     const indexPath = path.join(manifestsDir, indexFileName);
@@ -203,10 +205,11 @@ export class GzipRotatingWriter {
           lineIndex: this.activePart.nextLineIndex,
           source: event.source,
           eventType: event.eventType,
-          provider: event.provider,
-          symbol: event.symbol,
-          marketSlug: event.marketSlug,
-          assetId: event.assetId
+          ...(event.provider !== undefined ? { provider: event.provider } : {}),
+          ...(event.symbol !== undefined ? { symbol: event.symbol } : {}),
+          ...(event.marketType !== undefined ? { marketType: event.marketType } : {}),
+          ...(event.marketStartAt !== undefined ? { marketStartAt: event.marketStartAt } : {}),
+          ...(event.assetId !== undefined ? { assetId: event.assetId } : {})
         };
         this.activePart.indexCandidates.push(candidate);
         this.activePart.nextLineIndex += 1;

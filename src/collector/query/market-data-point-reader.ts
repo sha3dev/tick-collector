@@ -3,6 +3,7 @@
  */
 
 import { GammaMarketCatalogService, type PolymarketMarket } from "@sha3/polymarket";
+import type { CryptoMarketWindow, CryptoSymbol } from "@sha3/polymarket";
 
 /**
  * @section imports:internals
@@ -32,15 +33,19 @@ type EventSelectionResult = Awaited<ReturnType<EventIndexRepository["findClosest
 
 type ReaderMetrics = { reads: number; readLatencyMsTotal: number; selectedEventHits: number; selectedEventMisses: number; missingFieldsTotal: number };
 
-type MarketCatalogContract = { loadMarketBySlug: (options: { slug: string }) => Promise<PolymarketMarket> };
+type MarketCatalogContract = {
+  loadCryptoWindowMarkets: (options: { date: Date; window: CryptoMarketWindow; symbols?: CryptoSymbol[] }) => Promise<PolymarketMarket[]>;
+};
 
 type EventIndexRepositoryContract = { findClosestEvent: (query: EventSelectionQuery) => Promise<EventSelectionResult> };
 
 type DatapointAssemblerContract = {
   assemble: (options: {
     timestamp: number;
-    marketSlug: string;
     market: PolymarketMarket | null;
+    symbol: CryptoSymbol;
+    marketType: CryptoMarketWindow;
+    marketStartAt: number;
     cryptoProviders: string[];
     includeChainlink: boolean;
     includePolymarket: boolean;
@@ -63,13 +68,21 @@ type MarketDataPointReaderOptions = {
   clock?: () => number;
 };
 
-type NormalizedReadOptions = { timestamp: number; marketSlug: string; sources: ReadSourcesFilter; maxDistanceMs: number; orderbookLevels: number };
+type NormalizedReadOptions = {
+  timestamp: number;
+  symbol: CryptoSymbol;
+  marketType: CryptoMarketWindow;
+  sources: ReadSourcesFilter;
+  maxDistanceMs: number;
+  orderbookLevels: number;
+};
 
 type NormalizedReadRangeOptions = {
   startTimestamp: number;
   endTimestamp: number;
   stepMs: number;
-  marketSlug: string;
+  symbol: CryptoSymbol;
+  marketType: CryptoMarketWindow;
   sources: ReadSourcesFilter;
   maxDistanceMs: number;
   orderbookLevels: number;
@@ -98,7 +111,7 @@ export class MarketDataPointReader {
   private readonly indexRepository: EventIndexRepositoryContract;
   private readonly assembler: DatapointAssemblerContract;
   private readonly marketsService: MarketCatalogContract;
-  private readonly marketCacheBySlug: Map<string, PolymarketMarket | null>;
+  private readonly marketCacheByBucket: Map<string, PolymarketMarket | null>;
   private readonly clock: () => number;
 
   /**
@@ -118,7 +131,7 @@ export class MarketDataPointReader {
     this.indexRepository = options.indexRepository ?? EventIndexRepository.create({ folder: options.folder });
     this.assembler = options.assembler ?? DatapointAssembler.create();
     this.marketsService = options.marketsService ?? GammaMarketCatalogService.create();
-    this.marketCacheBySlug = new Map<string, PolymarketMarket | null>();
+    this.marketCacheByBucket = new Map<string, PolymarketMarket | null>();
     this.clock = options.clock ?? Date.now;
     this.metrics = { reads: 0, readLatencyMsTotal: 0, selectedEventHits: 0, selectedEventMisses: 0, missingFieldsTotal: 0 };
   }
@@ -156,7 +169,8 @@ export class MarketDataPointReader {
   private normalizeReadOptions(options: ReadDataPointOptions): NormalizedReadOptions {
     const normalized: NormalizedReadOptions = {
       timestamp: options.timestamp,
-      marketSlug: options.marketSlug,
+      symbol: options.symbol,
+      marketType: options.marketType,
       sources: this.normalizeSources(options.sources),
       maxDistanceMs: options.maxDistanceMs ?? this.defaultMaxDistanceMs,
       orderbookLevels: options.orderbookLevels ?? this.defaultOrderbookLevels
@@ -169,7 +183,8 @@ export class MarketDataPointReader {
       startTimestamp: options.startTimestamp,
       endTimestamp: options.endTimestamp,
       stepMs: options.stepMs,
-      marketSlug: options.marketSlug,
+      symbol: options.symbol,
+      marketType: options.marketType,
       sources: this.normalizeSources(options.sources),
       maxDistanceMs: options.maxDistanceMs ?? this.defaultMaxDistanceMs,
       orderbookLevels: options.orderbookLevels ?? this.defaultOrderbookLevels
@@ -189,15 +204,53 @@ export class MarketDataPointReader {
     }
   }
 
-  private async loadMarket(marketSlug: string): Promise<PolymarketMarket | null> {
-    let market = this.marketCacheBySlug.get(marketSlug) ?? null;
-    if (!this.marketCacheBySlug.has(marketSlug)) {
+  private toWindowMs(marketType: CryptoMarketWindow): number {
+    const windowMs = marketType === "5m" ? 5 * 60_000 : 15 * 60_000;
+    return windowMs;
+  }
+
+  private toMarketBucketCacheKey(timestamp: number, symbol: CryptoSymbol, marketType: CryptoMarketWindow): string {
+    const windowMs = this.toWindowMs(marketType);
+    const bucketStart = Math.floor(timestamp / windowMs) * windowMs;
+    const key = `${symbol}|${marketType}|${bucketStart}`;
+    return key;
+  }
+
+  private pickClosestMarket(markets: PolymarketMarket[], timestamp: number, symbol: CryptoSymbol): PolymarketMarket | null {
+    const symbolMarkets = markets.filter((market) => {
+      const match = market.symbol === symbol;
+      return match;
+    });
+    const sorted = [...symbolMarkets].sort((left, right) => {
+      const leftStartMs = left.start.getTime();
+      const leftEndMs = left.end.getTime();
+      const rightStartMs = right.start.getTime();
+      const rightEndMs = right.end.getTime();
+      const leftContainsTimestamp = timestamp >= leftStartMs && timestamp <= leftEndMs;
+      const rightContainsTimestamp = timestamp >= rightStartMs && timestamp <= rightEndMs;
+      const leftContainOrder = leftContainsTimestamp ? 0 : 1;
+      const rightContainOrder = rightContainsTimestamp ? 0 : 1;
+      const containOrder = leftContainOrder - rightContainOrder;
+      const leftDistance = Math.abs(leftStartMs - timestamp);
+      const rightDistance = Math.abs(rightStartMs - timestamp);
+      const distanceOrder = containOrder === 0 ? leftDistance - rightDistance : containOrder;
+      return distanceOrder;
+    });
+    const market = sorted[0] ?? null;
+    return market;
+  }
+
+  private async loadMarket(timestamp: number, symbol: CryptoSymbol, marketType: CryptoMarketWindow): Promise<PolymarketMarket | null> {
+    const cacheKey = this.toMarketBucketCacheKey(timestamp, symbol, marketType);
+    let market = this.marketCacheByBucket.get(cacheKey) ?? null;
+    if (!this.marketCacheByBucket.has(cacheKey)) {
       try {
-        market = await this.marketsService.loadMarketBySlug({ slug: marketSlug });
+        const markets = await this.marketsService.loadCryptoWindowMarkets({ date: new Date(timestamp), window: marketType, symbols: [symbol] });
+        market = this.pickClosestMarket(markets, timestamp, symbol);
       } catch {
         market = null;
       }
-      this.marketCacheBySlug.set(marketSlug, market);
+      this.marketCacheByBucket.set(cacheKey, market);
     }
     return market;
   }
@@ -214,7 +267,7 @@ export class MarketDataPointReader {
 
   private async selectCryptoPriceEvents(options: {
     timestamp: number;
-    symbol: string | null;
+    symbol: string;
     maxDistanceMs: number;
     cryptoProviders: string[];
     includeChainlink: boolean;
@@ -243,7 +296,7 @@ export class MarketDataPointReader {
 
   private async selectCryptoOrderbookEvents(options: {
     timestamp: number;
-    symbol: string | null;
+    symbol: string;
     maxDistanceMs: number;
     cryptoProviders: string[];
   }): Promise<Record<string, EventSelectionResult>> {
@@ -268,7 +321,8 @@ export class MarketDataPointReader {
   private async selectPolymarketEvents(options: {
     timestamp: number;
     market: PolymarketMarket | null;
-    marketSlug: string;
+    marketType: CryptoMarketWindow;
+    marketStartAt: number;
     maxDistanceMs: number;
     includePolymarket: boolean;
   }): Promise<{ book: EventSelectionResult; pricesByAssetId: Record<string, EventSelectionResult> }> {
@@ -276,11 +330,14 @@ export class MarketDataPointReader {
     const pricesByAssetId: Record<string, EventSelectionResult> = {};
 
     if (options.includePolymarket) {
+      const bookAssetId = options.market?.upTokenId ?? options.market?.downTokenId ?? null;
       const bookQuery: EventSelectionQuery = {
         timestamp: options.timestamp,
         source: "polymarket",
         eventType: "polymarket.book",
-        marketSlug: options.marketSlug,
+        marketType: options.marketType,
+        marketStartAt: options.marketStartAt,
+        ...(bookAssetId !== null ? { assetId: bookAssetId } : {}),
         maxDistanceMs: options.maxDistanceMs
       };
       book = await this.selectOne(bookQuery);
@@ -297,7 +354,8 @@ export class MarketDataPointReader {
           timestamp: options.timestamp,
           source: "polymarket",
           eventType: "polymarket.price",
-          marketSlug: options.marketSlug,
+          marketType: options.marketType,
+          marketStartAt: options.marketStartAt,
           assetId,
           maxDistanceMs: options.maxDistanceMs
         };
@@ -331,10 +389,12 @@ export class MarketDataPointReader {
     let datapoint: MarketDataPoint | null = null;
     try {
       const normalized = this.normalizeReadOptions(options);
-      const market = await this.loadMarket(normalized.marketSlug);
+      const market = await this.loadMarket(normalized.timestamp, normalized.symbol, normalized.marketType);
       const hasMarket = market !== null;
       if (hasMarket) {
-        const symbol = market.symbol;
+        const symbol = normalized.symbol;
+        const marketType = normalized.marketType;
+        const marketStartAt = market.start.getTime();
         const cryptoPriceByProvider = await this.selectCryptoPriceEvents({
           timestamp: normalized.timestamp,
           symbol,
@@ -351,14 +411,17 @@ export class MarketDataPointReader {
         const polymarketSelections = await this.selectPolymarketEvents({
           timestamp: normalized.timestamp,
           market,
-          marketSlug: normalized.marketSlug,
+          marketType,
+          marketStartAt,
           maxDistanceMs: normalized.maxDistanceMs,
           includePolymarket: normalized.sources.includePolymarket
         });
         datapoint = this.assembler.assemble({
           timestamp: normalized.timestamp,
-          marketSlug: normalized.marketSlug,
           market,
+          symbol,
+          marketType,
+          marketStartAt,
           cryptoProviders: normalized.sources.cryptoProviders,
           includeChainlink: normalized.sources.includeChainlink,
           includePolymarket: normalized.sources.includePolymarket,
@@ -371,7 +434,10 @@ export class MarketDataPointReader {
         this.updateMetrics(datapoint, startedAt);
       }
     } catch (error: unknown) {
-      throw PersistedEventReadError.fromCause(`failed reading datapoint for marketSlug=${options.marketSlug} at timestamp=${options.timestamp}`, error);
+      throw PersistedEventReadError.fromCause(
+        `failed reading datapoint for symbol=${options.symbol} marketType=${options.marketType} at timestamp=${options.timestamp}`,
+        error
+      );
     }
     return datapoint;
   }
@@ -386,7 +452,8 @@ export class MarketDataPointReader {
       while (timestamp <= normalized.endTimestamp) {
         const point = await this.read({
           timestamp,
-          marketSlug: normalized.marketSlug,
+          symbol: normalized.symbol,
+          marketType: normalized.marketType,
           sources: normalized.sources,
           maxDistanceMs: normalized.maxDistanceMs,
           orderbookLevels: normalized.orderbookLevels
@@ -402,7 +469,7 @@ export class MarketDataPointReader {
         throw error;
       }
       throw PersistedEventReadError.fromCause(
-        `failed reading datapoint range for marketSlug=${options.marketSlug} from=${options.startTimestamp} to=${options.endTimestamp}`,
+        `failed reading datapoint range for symbol=${options.symbol} marketType=${options.marketType} from=${options.startTimestamp} to=${options.endTimestamp}`,
         error
       );
     }

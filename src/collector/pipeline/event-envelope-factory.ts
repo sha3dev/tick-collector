@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
  */
 
 import type { FeedEvent } from "@sha3/crypto";
-import type { MarketEvent } from "@sha3/polymarket";
+import type { CryptoMarketWindow, CryptoSymbol, MarketEvent } from "@sha3/polymarket";
 import type { StoredEvent } from "../types/stored-event.ts";
 
 /**
@@ -24,7 +24,14 @@ import type { StoredEvent } from "../types/stored-event.ts";
 
 type BuildCryptoEventOptions = { event: FeedEvent; sequence: number; ingestedAt: number };
 
-type BuildPolymarketEventOptions = { event: MarketEvent; sequence: number; ingestedAt: number; marketSlug: string | null };
+type BuildPolymarketEventOptions = {
+  event: MarketEvent;
+  sequence: number;
+  ingestedAt: number;
+  symbol: CryptoSymbol | null;
+  marketType: CryptoMarketWindow | null;
+  marketStartAt: number | null;
+};
 
 export class EventEnvelopeFactory {
   /**
@@ -93,17 +100,16 @@ export class EventEnvelopeFactory {
 
   public fromCrypto(options: BuildCryptoEventOptions): StoredEvent {
     const baseEvent = this.createBaseEvent(options.sequence, options.ingestedAt);
-    const symbol = "symbol" in options.event ? options.event.symbol : null;
-    const provider = "provider" in options.event ? options.event.provider : null;
+    const symbol = "symbol" in options.event ? options.event.symbol : undefined;
+    const provider = "provider" in options.event ? options.event.provider : undefined;
+    const exchangeTs = "ts" in options.event ? options.event.ts : undefined;
     const storedEvent: StoredEvent = {
       ...baseEvent,
       source: "crypto",
       eventType: `crypto.${options.event.type}`,
-      exchangeTs: "ts" in options.event ? options.event.ts : null,
-      symbol,
-      provider,
-      marketSlug: null,
-      assetId: null,
+      ...(exchangeTs !== undefined ? { exchangeTs } : {}),
+      ...(symbol !== undefined ? { symbol } : {}),
+      ...(provider !== undefined ? { provider } : {}),
       payload: options.event
     };
     return storedEvent;
@@ -116,9 +122,9 @@ export class EventEnvelopeFactory {
       source: "polymarket",
       eventType: `polymarket.${options.event.type}`,
       exchangeTs: options.event.date.getTime(),
-      symbol: null,
-      provider: null,
-      marketSlug: options.marketSlug,
+      ...(options.symbol !== null ? { symbol: options.symbol } : {}),
+      ...(options.marketType !== null ? { marketType: options.marketType } : {}),
+      ...(options.marketStartAt !== null ? { marketStartAt: options.marketStartAt } : {}),
       assetId: options.event.assetId,
       payload: options.event
     };

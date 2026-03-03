@@ -121,8 +121,15 @@ export class PolymarketFeedAdapter {
    */
 
   private async onEvent(event: MarketEvent): Promise<void> {
-    const marketSlug = this.scheduler.getMarketSlug(event.assetId);
-    const storedEvent = this.envelopeFactory.fromPolymarket({ event, sequence: this.nextSequence(), ingestedAt: this.clock(), marketSlug });
+    const marketContext = this.scheduler.getMarketContext(event.assetId);
+    const storedEvent = this.envelopeFactory.fromPolymarket({
+      event,
+      sequence: this.nextSequence(),
+      ingestedAt: this.clock(),
+      symbol: marketContext?.symbol ?? null,
+      marketType: marketContext?.marketType ?? null,
+      marketStartAt: marketContext?.marketStartAt ?? null
+    });
     await this.eventHandler(storedEvent);
   }
 

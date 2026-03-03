@@ -76,7 +76,11 @@ test("polymarket market scheduler subscribes current windows and schedules next 
   assert.equal(streamService.subscriptions.length > 0, true);
   const firstSubscription = streamService.subscriptions[0] ?? [];
   assert.equal(firstSubscription.includes("asset-1"), true);
-  assert.equal(scheduler.getMarketSlug("asset-1") !== null, true);
+  const marketContext = scheduler.getMarketContext("asset-1");
+  assert.equal(marketContext !== null, true);
+  assert.equal(marketContext?.marketType, "15m");
+  assert.equal(marketContext?.symbol, "btc");
+  assert.equal(typeof marketContext?.marketStartAt, "number");
   assert.deepEqual(
     scheduledTimeouts.sort((left, right) => left - right),
     [270000, 270000]

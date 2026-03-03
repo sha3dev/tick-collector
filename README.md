@@ -46,27 +46,49 @@ type StoredEvent = {
   eventId: string;
   source: "crypto" | "polymarket";
   eventType: string;
-  ingestedAt: number; // canonical timestamp
-  exchangeTs: number | null; // informational only
+  ingestedAt: number; // canonical timestamp (always present)
+  exchangeTs?: number; // upstream timestamp, present when available
   sequence: number;
-  symbol: string | null;
-  provider: string | null;
-  marketSlug: string | null;
-  assetId: string | null;
+  symbol?: string;
+  provider?: string;
+  marketType?: "5m" | "15m";
+  marketStartAt?: number; // UTC epoch ms for market window start
+  assetId?: string;
   payload: unknown; // raw event payload
 };
 ```
 
+`marketSlug` is intentionally not persisted. Non-applicable fields are omitted (not stored as `null`).
+
+## JSON Line Types
+
+Each line in `.ndjson.gz` is one `StoredEvent`. These are the concrete line categories:
+
+- `crypto.price`
+  - `source="crypto"`, `provider=<exchange|chainlink>`, `symbol=<btc|eth|sol|xrp>`, `payload.price`.
+- `crypto.orderbook`
+  - `source="crypto"`, `provider=<exchange>`, `symbol=<btc|eth|sol|xrp>`, `payload.bids/asks`.
+- `crypto.trade`
+  - `source="crypto"`, `provider=<exchange>`, `symbol=<btc|eth|sol|xrp>`, `payload.price/size`.
+- `crypto.status`
+  - `source="crypto"`, `provider=<provider>`, `payload.status/message`.
+- `polymarket.price`
+  - `source="polymarket"`, `symbol=<btc|eth|sol|xrp>`, `marketType=<5m|15m>`, `marketStartAt=<epoch-ms>`, `assetId=<token-id>`, `payload.price`.
+- `polymarket.book`
+  - `source="polymarket"`, `symbol=<btc|eth|sol|xrp>`, `marketType=<5m|15m>`, `marketStartAt=<epoch-ms>`, `assetId=<token-id>`, `payload.bids/asks`.
+
 ## Storage Layout
 
-Chronological partitioning by ingest hour:
+Flat folders by artifact type (time metadata is embedded in file names):
 
 ```text
 data/
-  journal/YYYY/MM/DD/HH/part-XXXXXXXX.ndjson.gz
-  manifests/YYYY/MM/DD/HH/part-XXXXXXXX.manifest.json
-  manifests/YYYY/MM/DD/HH/part-XXXXXXXX.index.json
+  journal/part-XXXXXXXX-YYYYMMDD-HHMMSS-<ingestedAt>.ndjson.gz
+  manifests/part-XXXXXXXX-YYYYMMDD-HHMMSS-<ingestedAt>.manifest.json
+  manifests/part-XXXXXXXX-YYYYMMDD-HHMMSS-<ingestedAt>.index.json
 ```
+
+The `<ingestedAt>` suffix is UTC epoch milliseconds for the part start event.
 
 Manifest fields:
 
@@ -127,8 +149,38 @@ Exports from `src/index.ts`:
 `PersistedEventStream`:
 
 - `new PersistedEventStream({ folder })`
-- `read({ timestamp, marketSlug, sources?, maxDistanceMs?, orderbookLevels? }): Promise<MarketDataPoint | null>`
-- `readRange({ startTimestamp, endTimestamp, stepMs, marketSlug, sources?, maxDistanceMs?, orderbookLevels? }): Promise<MarketDataPoint[]>`
+- `read({ timestamp, symbol, marketType, sources?, maxDistanceMs?, orderbookLevels? }): Promise<MarketDataPoint | null>`
+- `readRange({ startTimestamp, endTimestamp, stepMs, symbol, marketType, sources?, maxDistanceMs?, orderbookLevels? }): Promise<MarketDataPoint[]>`
+
+### Method Parameters
+
+`read(options)`:
+
+- `timestamp`:
+  - Target UTC epoch milliseconds for the datapoint snapshot.
+- `symbol`:
+  - Market asset symbol (`btc`, `eth`, `sol`, `xrp`).
+- `marketType`:
+  - Window type (`5m` or `15m`).
+- `sources` (optional):
+  - Overrides enabled read sources for this call.
+- `maxDistanceMs` (optional):
+  - Maximum allowed time gap between `timestamp` and any selected source event.
+  - Example: `30_000` means each selected event must be within 30 seconds of `timestamp`.
+  - If no suitable event is found within this distance, that field is returned as missing (`null` in datapoint output + `coverage.missingFields` entry).
+- `orderbookLevels` (optional):
+  - Max bid/ask levels kept per orderbook snapshot (top-N depth).
+
+`readRange(options)`:
+
+- `startTimestamp`:
+  - Inclusive UTC epoch milliseconds range start.
+- `endTimestamp`:
+  - Inclusive UTC epoch milliseconds range end.
+- `stepMs`:
+  - Sampling interval in milliseconds between datapoints (`> 0`).
+- `symbol`, `marketType`, `sources?`, `maxDistanceMs?`, `orderbookLevels?`:
+  - Same meaning as in `read(options)`.
 
 Example:
 
@@ -138,7 +190,8 @@ import { PersistedEventStream } from "@sha3/tick-collector";
 const stream = new PersistedEventStream({ folder: "./data" });
 const datapoint = await stream.read({
   timestamp: Date.now(),
-  marketSlug: "btc-updown-5m-1772472600",
+  symbol: "btc",
+  marketType: "5m",
   sources: { cryptoProviders: ["binance", "coinbase", "kraken", "okx"], includeChainlink: true, includePolymarket: true },
   maxDistanceMs: 30_000,
   orderbookLevels: 20
@@ -148,7 +201,7 @@ if (datapoint) {
   console.log(datapoint.polymarket.upPrice, datapoint.coverage.missingFields);
 }
 
-const range = await stream.readRange({ startTimestamp: Date.now() - 60_000, endTimestamp: Date.now(), stepMs: 5_000, marketSlug: "btc-updown-5m-1772472600" });
+const range = await stream.readRange({ startTimestamp: Date.now() - 60_000, endTimestamp: Date.now(), stepMs: 5_000, symbol: "btc", marketType: "5m" });
 
 console.log("points", range.length);
 ```

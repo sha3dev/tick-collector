@@ -9,9 +9,9 @@ function buildEvent(options: {
   ingestedAt: number;
   sequence: number;
   eventType: string;
-  provider?: string | null;
-  symbol?: string | null;
-  assetId?: string | null;
+  provider?: string;
+  symbol?: string;
+  assetId?: string;
   source?: "crypto" | "polymarket";
 }): StoredEvent {
   const source = options.source ?? "crypto";
@@ -22,10 +22,9 @@ function buildEvent(options: {
     ingestedAt: options.ingestedAt,
     exchangeTs: options.ingestedAt,
     sequence: options.sequence,
-    symbol: options.symbol ?? (source === "crypto" ? "btc" : null),
-    provider: options.provider ?? (source === "crypto" ? "binance" : null),
-    marketSlug: null,
-    assetId: options.assetId ?? (source === "polymarket" ? "asset-a" : null),
+    ...(source === "crypto" || options.symbol !== undefined ? { symbol: options.symbol ?? "btc" } : {}),
+    ...(source === "crypto" || options.provider !== undefined ? { provider: options.provider ?? "binance" } : {}),
+    ...(source === "polymarket" || options.assetId !== undefined ? { assetId: options.assetId ?? "asset-a" } : {}),
     payload: {}
   };
   return event;

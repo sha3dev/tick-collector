@@ -2,7 +2,7 @@
  * @section imports:externals
  */
 
-// empty
+import type { CryptoMarketWindow, CryptoSymbol } from "@sha3/polymarket";
 
 /**
  * @section imports:internals
@@ -28,8 +28,9 @@ export type DataPointCoverage = { missingFields: string[]; selectedEvents: Selec
 
 export type MarketDataPoint = {
   timestamp: number;
-  marketSlug: string;
-  symbol: "btc" | "eth" | "sol" | "xrp" | null;
+  symbol: CryptoSymbol;
+  marketType: CryptoMarketWindow;
+  marketStartAt: number;
   cryptoPricesBySource: Record<string, number | null>;
   polymarket: { upPrice: number | null; downPrice: number | null; orderbook: OrderBookSnapshotValue | null };
   exchangeOrderbooksBySource: Record<string, OrderBookSnapshotValue | null>;

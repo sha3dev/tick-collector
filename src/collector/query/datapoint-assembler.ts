@@ -26,8 +26,10 @@ type SelectedEvent = { event: StoredEvent; candidate: EventIndexCandidate };
 
 type DatapointAssemblerOptions = {
   timestamp: number;
-  marketSlug: string;
   market: PolymarketMarket | null;
+  symbol: CryptoSymbol;
+  marketType: "5m" | "15m";
+  marketStartAt: number;
   cryptoProviders: string[];
   includeChainlink: boolean;
   includePolymarket: boolean;
@@ -87,11 +89,6 @@ export class DatapointAssembler {
   /**
    * @section private:methods
    */
-
-  private toSymbol(market: PolymarketMarket | null): CryptoSymbol | null {
-    const symbol = market?.symbol ?? null;
-    return symbol;
-  }
 
   private toMeta(candidate: EventIndexCandidate, timestamp: number): SelectedEventMeta {
     const meta: SelectedEventMeta = {
@@ -197,8 +194,9 @@ export class DatapointAssembler {
 
     const datapoint: MarketDataPoint = {
       timestamp: options.timestamp,
-      marketSlug: options.marketSlug,
-      symbol: this.toSymbol(options.market),
+      symbol: options.symbol,
+      marketType: options.marketType,
+      marketStartAt: options.marketStartAt,
       cryptoPricesBySource,
       polymarket: { upPrice, downPrice, orderbook: polymarketOrderbook },
       exchangeOrderbooksBySource,

@@ -8,6 +8,7 @@
  * @section imports:internals
  */
 
+import type { CryptoMarketWindow, CryptoSymbol } from "@sha3/polymarket";
 import type { ReadSourcesFilter } from "./read-sources-filter.ts";
 
 /**
@@ -20,4 +21,11 @@ import type { ReadSourcesFilter } from "./read-sources-filter.ts";
  * @section types
  */
 
-export type ReadDataPointOptions = { timestamp: number; marketSlug: string; sources?: ReadSourcesFilter; maxDistanceMs?: number; orderbookLevels?: number };
+export type ReadDataPointOptions = {
+  timestamp: number;
+  symbol: CryptoSymbol;
+  marketType: CryptoMarketWindow;
+  sources?: ReadSourcesFilter;
+  maxDistanceMs?: number;
+  orderbookLevels?: number;
+};

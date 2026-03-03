@@ -141,9 +141,10 @@ export class EventIndexRepository {
     const eventTypeMatches = candidate.eventType === query.eventType;
     const providerMatches = query.provider === undefined || candidate.provider === query.provider;
     const symbolMatches = query.symbol === undefined || candidate.symbol === query.symbol;
-    const marketSlugMatches = query.marketSlug === undefined || candidate.marketSlug === query.marketSlug;
+    const marketTypeMatches = query.marketType === undefined || candidate.marketType === query.marketType;
+    const marketStartAtMatches = query.marketStartAt === undefined || candidate.marketStartAt === query.marketStartAt;
     const assetIdMatches = query.assetId === undefined || candidate.assetId === query.assetId;
-    const isMatch = sourceMatches && eventTypeMatches && providerMatches && symbolMatches && marketSlugMatches && assetIdMatches;
+    const isMatch = sourceMatches && eventTypeMatches && providerMatches && symbolMatches && marketTypeMatches && marketStartAtMatches && assetIdMatches;
     return isMatch;
   }
 
@@ -234,7 +235,7 @@ export class EventIndexRepository {
         }
       }
     } catch (error: unknown) {
-      throw EventIndexError.fromCause(`failed selecting event for marketSlug=${query.marketSlug ?? "n/a"} eventType=${query.eventType}`, error);
+      throw EventIndexError.fromCause(`failed selecting event for eventType=${query.eventType} source=${query.source}`, error);
     }
     return result;
   }

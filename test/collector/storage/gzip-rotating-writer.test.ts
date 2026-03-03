@@ -38,8 +38,6 @@ test("gzip rotating writer writes ndjson and rotates by size", async () => {
     sequence: 1,
     symbol: "btc",
     provider: "binance",
-    marketSlug: null,
-    assetId: null,
     payload: { v: "a".repeat(400) }
   });
   writer.append({
@@ -51,8 +49,6 @@ test("gzip rotating writer writes ndjson and rotates by size", async () => {
     sequence: 2,
     symbol: "btc",
     provider: "binance",
-    marketSlug: null,
-    assetId: null,
     payload: { v: "b".repeat(400) }
   });
   await writer.stop();

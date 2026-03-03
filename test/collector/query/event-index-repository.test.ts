@@ -19,8 +19,6 @@ function buildStoredEvent(options: { eventId: string; ingestedAt: number; sequen
     sequence: options.sequence,
     symbol: "btc",
     provider: "binance",
-    marketSlug: null,
-    assetId: null,
     payload: { price: options.price }
   };
   return event;
@@ -43,30 +41,8 @@ test("event index repository selects closest candidate and prefers past on tie",
 
   const index: EventIndexFile = {
     candidates: [
-      {
-        partPath,
-        ingestedAt: 900,
-        sequence: 1,
-        lineIndex: 0,
-        source: "crypto",
-        eventType: "crypto.price",
-        provider: "binance",
-        symbol: "btc",
-        marketSlug: null,
-        assetId: null
-      },
-      {
-        partPath,
-        ingestedAt: 1100,
-        sequence: 2,
-        lineIndex: 1,
-        source: "crypto",
-        eventType: "crypto.price",
-        provider: "binance",
-        symbol: "btc",
-        marketSlug: null,
-        assetId: null
-      }
+      { partPath, ingestedAt: 900, sequence: 1, lineIndex: 0, source: "crypto", eventType: "crypto.price", provider: "binance", symbol: "btc" },
+      { partPath, ingestedAt: 1100, sequence: 2, lineIndex: 1, source: "crypto", eventType: "crypto.price", provider: "binance", symbol: "btc" }
     ]
   };
   await writeFile(path.join(manifestFolder, "part-00000001.index.json"), JSON.stringify(index), "utf8");
@@ -95,20 +71,7 @@ test("event index repository applies maxDistanceMs constraint", async () => {
   const event = buildStoredEvent({ eventId: "far", ingestedAt: 0, sequence: 1, price: 10 });
   await writeFile(partPath, gzipSync(`${JSON.stringify(event)}\n`));
   const index: EventIndexFile = {
-    candidates: [
-      {
-        partPath,
-        ingestedAt: 0,
-        sequence: 1,
-        lineIndex: 0,
-        source: "crypto",
-        eventType: "crypto.price",
-        provider: "binance",
-        symbol: "btc",
-        marketSlug: null,
-        assetId: null
-      }
-    ]
+    candidates: [{ partPath, ingestedAt: 0, sequence: 1, lineIndex: 0, source: "crypto", eventType: "crypto.price", provider: "binance", symbol: "btc" }]
   };
   await writeFile(path.join(manifestFolder, "part-00000001.index.json"), JSON.stringify(index), "utf8");
 

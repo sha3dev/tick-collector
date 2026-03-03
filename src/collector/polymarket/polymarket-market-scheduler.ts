@@ -23,6 +23,7 @@ const MINUTES_TO_MS = 60_000;
 
 type SetTimeoutFn = (handler: () => void, timeoutMs: number) => NodeJS.Timeout;
 type ClearTimeoutFn = (timeout: NodeJS.Timeout) => void;
+type MarketContext = { symbol: CryptoSymbol | null; marketType: CryptoMarketWindow; marketStartAt: number };
 
 type PolymarketMarketSchedulerOptions = {
   marketsService: GammaMarketCatalogService;
@@ -60,7 +61,7 @@ export class PolymarketMarketScheduler {
   private readonly clearTimeoutFn: ClearTimeoutFn;
   private readonly timersByWindow: Map<CryptoMarketWindow, NodeJS.Timeout>;
   private readonly subscribedAssetIds: Set<string>;
-  private readonly marketSlugByAssetId: Map<string, string>;
+  private readonly marketContextByAssetId: Map<string, MarketContext>;
 
   /**
    * @section public:properties
@@ -82,7 +83,7 @@ export class PolymarketMarketScheduler {
     this.clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
     this.timersByWindow = new Map<CryptoMarketWindow, NodeJS.Timeout>();
     this.subscribedAssetIds = new Set<string>();
-    this.marketSlugByAssetId = new Map<string, string>();
+    this.marketContextByAssetId = new Map<string, MarketContext>();
     this.isRunning = false;
   }
 
@@ -124,12 +125,12 @@ export class PolymarketMarketScheduler {
     return delayMs;
   }
 
-  private trackMarketAssets(markets: PolymarketMarket[]): string[] {
+  private trackMarketAssets(markets: PolymarketMarket[], marketType: CryptoMarketWindow): string[] {
     const toSubscribe: string[] = [];
 
     for (const market of markets) {
       for (const assetId of market.clobTokenIds) {
-        this.marketSlugByAssetId.set(assetId, market.slug);
+        this.marketContextByAssetId.set(assetId, { symbol: market.symbol, marketType, marketStartAt: market.start.getTime() });
         const shouldSubscribe = !this.subscribedAssetIds.has(assetId);
         if (shouldSubscribe) {
           this.subscribedAssetIds.add(assetId);
@@ -143,7 +144,7 @@ export class PolymarketMarketScheduler {
 
   private async discoverAndSubscribeForWindow(window: CryptoMarketWindow, date: Date): Promise<void> {
     const markets = await this.marketsService.loadCryptoWindowMarkets({ date, window, symbols: this.symbols });
-    const toSubscribe = this.trackMarketAssets(markets);
+    const toSubscribe = this.trackMarketAssets(markets, window);
     const hasNewAssets = toSubscribe.length > 0;
     if (hasNewAssets) {
       this.streamService.subscribe({ assetIds: toSubscribe });
@@ -217,9 +218,9 @@ export class PolymarketMarketScheduler {
     this.clearAllTimers();
   }
 
-  public getMarketSlug(assetId: string): string | null {
-    const marketSlug = this.marketSlugByAssetId.get(assetId) ?? null;
-    return marketSlug;
+  public getMarketContext(assetId: string): MarketContext | null {
+    const context = this.marketContextByAssetId.get(assetId) ?? null;
+    return context;
   }
 
   /**

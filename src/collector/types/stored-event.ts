@@ -2,7 +2,7 @@
  * @section imports:externals
  */
 
-// empty
+import type { CryptoMarketWindow } from "@sha3/polymarket";
 
 /**
  * @section imports:internals
@@ -25,11 +25,12 @@ export type StoredEvent = {
   source: "crypto" | "polymarket";
   eventType: string;
   ingestedAt: number;
-  exchangeTs: number | null;
+  exchangeTs?: number;
   sequence: number;
-  symbol: string | null;
-  provider: string | null;
-  marketSlug: string | null;
-  assetId: string | null;
+  symbol?: string;
+  provider?: string;
+  marketType?: CryptoMarketWindow;
+  marketStartAt?: number;
+  assetId?: string;
   payload: unknown;
 };

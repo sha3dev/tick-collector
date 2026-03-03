@@ -1,8 +1,8 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MarketDataPointReader } from "../../../src/collector/query/market-data-point-reader.ts";
 import { InvalidReadRangeError } from "../../../src/collector/errors/invalid-read-range-error.ts";
+import { MarketDataPointReader } from "../../../src/collector/query/market-data-point-reader.ts";
 import type { EventSelectionQuery } from "../../../src/collector/query/types/event-index-types.ts";
 import type { PolymarketMarket } from "@sha3/polymarket";
 import type { StoredEvent } from "../../../src/collector/types/stored-event.ts";
@@ -16,16 +16,19 @@ type EventSelectionResult = {
     lineIndex: number;
     source: "crypto" | "polymarket";
     eventType: string;
-    provider: string | null;
-    symbol: string | null;
-    marketSlug: string | null;
-    assetId: string | null;
+    provider?: string;
+    symbol?: string;
+    marketType?: string;
+    marketStartAt?: number;
+    assetId?: string;
   };
 } | null;
 
 type FakeRepository = { findClosestEvent: (query: EventSelectionQuery) => Promise<EventSelectionResult>; calls: EventSelectionQuery[] };
 
-type FakeMarketsService = { loadMarketBySlug: (options: { slug: string }) => Promise<PolymarketMarket> };
+type FakeMarketsService = {
+  loadCryptoWindowMarkets: (options: { date: Date; window: "5m" | "15m"; symbols?: ("btc" | "eth" | "sol" | "xrp")[] }) => Promise<PolymarketMarket[]>;
+};
 
 function buildEvent(options: {
   eventId: string;
@@ -33,10 +36,11 @@ function buildEvent(options: {
   eventType: string;
   ingestedAt: number;
   sequence: number;
-  provider?: string | null;
-  symbol?: string | null;
-  marketSlug?: string | null;
-  assetId?: string | null;
+  provider?: string;
+  symbol?: string;
+  marketType?: "5m" | "15m";
+  marketStartAt?: number;
+  assetId?: string;
   payload: Record<string, unknown>;
 }): StoredEvent {
   const event: StoredEvent = {
@@ -46,10 +50,11 @@ function buildEvent(options: {
     ingestedAt: options.ingestedAt,
     exchangeTs: options.ingestedAt,
     sequence: options.sequence,
-    symbol: options.symbol ?? null,
-    provider: options.provider ?? null,
-    marketSlug: options.marketSlug ?? null,
-    assetId: options.assetId ?? null,
+    ...(options.symbol !== undefined ? { symbol: options.symbol } : {}),
+    ...(options.provider !== undefined ? { provider: options.provider } : {}),
+    ...(options.marketType !== undefined ? { marketType: options.marketType } : {}),
+    ...(options.marketStartAt !== undefined ? { marketStartAt: options.marketStartAt } : {}),
+    ...(options.assetId !== undefined ? { assetId: options.assetId } : {}),
     payload: options.payload
   };
   return event;
@@ -65,10 +70,11 @@ function buildSelection(event: StoredEvent): EventSelectionResult {
       lineIndex: 0,
       source: event.source,
       eventType: event.eventType,
-      provider: event.provider,
-      symbol: event.symbol,
-      marketSlug: event.marketSlug,
-      assetId: event.assetId
+      ...(event.provider !== undefined ? { provider: event.provider } : {}),
+      ...(event.symbol !== undefined ? { symbol: event.symbol } : {}),
+      ...(event.marketType !== undefined ? { marketType: event.marketType } : {}),
+      ...(event.marketStartAt !== undefined ? { marketStartAt: event.marketStartAt } : {}),
+      ...(event.assetId !== undefined ? { assetId: event.assetId } : {})
     }
   };
   return selection;
@@ -89,8 +95,8 @@ function createFakeRepository(resolver: (query: EventSelectionQuery) => EventSel
 
 function createFakeMarketsService(market: PolymarketMarket): FakeMarketsService {
   const service: FakeMarketsService = {
-    loadMarketBySlug: async (): Promise<PolymarketMarket> => {
-      return market;
+    loadCryptoWindowMarkets: async (): Promise<PolymarketMarket[]> => {
+      return [market];
     }
   };
   return service;
@@ -211,7 +217,8 @@ test("market data point reader merges nearest events for configured sources", as
         eventType: "polymarket.book",
         ingestedAt: 998,
         sequence: 6,
-        marketSlug: "btc-updown-5m-1",
+        marketType: "5m",
+        marketStartAt: market.start.getTime(),
         assetId: "up-1",
         payload: {
           bids: [
@@ -232,7 +239,8 @@ test("market data point reader merges nearest events for configured sources", as
         eventType: "polymarket.price",
         ingestedAt: 999,
         sequence: 7,
-        marketSlug: "btc-updown-5m-1",
+        marketType: "5m",
+        marketStartAt: market.start.getTime(),
         assetId: "up-1",
         payload: { price: 0.62 }
       })
@@ -244,7 +252,8 @@ test("market data point reader merges nearest events for configured sources", as
         eventType: "polymarket.price",
         ingestedAt: 1_001,
         sequence: 8,
-        marketSlug: "btc-updown-5m-1",
+        marketType: "5m",
+        marketStartAt: market.start.getTime(),
         assetId: "down-1",
         payload: { price: 0.38 }
       })
@@ -259,8 +268,11 @@ test("market data point reader merges nearest events for configured sources", as
   const marketsService = createFakeMarketsService(market);
   const reader = createReader({ repository, marketsService, orderbookLevels: 2 });
 
-  const datapoint = await reader.read({ timestamp, marketSlug: "btc-updown-5m-1" });
+  const datapoint = await reader.read({ timestamp, symbol: "btc", marketType: "5m" });
 
+  assert.equal(datapoint?.symbol, "btc");
+  assert.equal(datapoint?.marketType, "5m");
+  assert.equal(datapoint?.marketStartAt, market.start.getTime());
   assert.equal(datapoint?.cryptoPricesBySource.binance, 100);
   assert.equal(datapoint?.cryptoPricesBySource.coinbase, 101);
   assert.equal(datapoint?.cryptoPricesBySource.chainlink, 99);
@@ -311,7 +323,8 @@ test("market data point reader reports partial coverage when events are missing"
 
   const datapoint = await reader.read({
     timestamp: 120,
-    marketSlug: "eth-updown-5m-1",
+    symbol: "eth",
+    marketType: "5m",
     sources: { cryptoProviders: ["binance"], includeChainlink: false, includePolymarket: true }
   });
 
@@ -364,7 +377,8 @@ test("market data point reader applies source filters and maxDistance", async ()
 
   const datapoint = await reader.read({
     timestamp: 1_040,
-    marketSlug: "sol-updown-5m-1",
+    symbol: "sol",
+    marketType: "5m",
     sources: { cryptoProviders: ["coinbase"], includeChainlink: false, includePolymarket: false }
   });
 
@@ -376,13 +390,13 @@ test("market data point reader applies source filters and maxDistance", async ()
 test("market data point reader returns null for unknown market", async () => {
   const repository = createFakeRepository(() => null);
   const marketsService: FakeMarketsService = {
-    loadMarketBySlug: async (): Promise<PolymarketMarket> => {
+    loadCryptoWindowMarkets: async (): Promise<PolymarketMarket[]> => {
       throw new Error("not found");
     }
   };
   const reader = createReader({ repository, marketsService });
 
-  const datapoint = await reader.read({ timestamp: 100, marketSlug: "missing-market" });
+  const datapoint = await reader.read({ timestamp: 100, symbol: "btc", marketType: "5m" });
 
   assert.equal(datapoint, null);
 });
@@ -411,7 +425,8 @@ test("market data point reader uses indexed selections only (no full-scan contra
 
   await reader.read({
     timestamp: 1000,
-    marketSlug: "xrp-updown-5m-1",
+    symbol: "xrp",
+    marketType: "5m",
     sources: { cryptoProviders: ["binance", "coinbase"], includeChainlink: true, includePolymarket: true }
   });
 
@@ -445,10 +460,11 @@ test("market data point reader readRange returns datapoints across timestamps", 
         eventType: query.eventType,
         ingestedAt: query.timestamp,
         sequence: 1,
-        provider: query.provider ?? null,
+        ...(query.provider !== undefined ? { provider: query.provider } : {}),
         symbol: "btc",
-        marketSlug: query.marketSlug ?? null,
-        assetId: query.assetId ?? null,
+        ...(query.marketType !== undefined ? { marketType: query.marketType as "5m" | "15m" } : {}),
+        ...(query.marketStartAt !== undefined ? { marketStartAt: query.marketStartAt } : {}),
+        ...(query.assetId !== undefined ? { assetId: query.assetId } : {}),
         payload: query.eventType.includes("orderbook") || query.eventType.includes("book") ? { bids: [], asks: [] } : { price: 100 }
       })
     );
@@ -460,7 +476,8 @@ test("market data point reader readRange returns datapoints across timestamps", 
     startTimestamp: 1_000,
     endTimestamp: 1_200,
     stepMs: 100,
-    marketSlug: "btc-updown-5m-range",
+    symbol: "btc",
+    marketType: "5m",
     sources: { cryptoProviders: ["binance"], includeChainlink: false, includePolymarket: false }
   });
 
@@ -493,10 +510,10 @@ test("market data point reader readRange validates bounds and step", async () =>
   const reader = createReader({ repository, marketsService: createFakeMarketsService(market) });
 
   await assert.rejects(async () => {
-    await reader.readRange({ startTimestamp: 2_000, endTimestamp: 1_000, stepMs: 100, marketSlug: "btc-updown-5m-range" });
+    await reader.readRange({ startTimestamp: 2_000, endTimestamp: 1_000, stepMs: 100, symbol: "btc", marketType: "5m" });
   }, InvalidReadRangeError);
 
   await assert.rejects(async () => {
-    await reader.readRange({ startTimestamp: 1_000, endTimestamp: 2_000, stepMs: 0, marketSlug: "btc-updown-5m-range" });
+    await reader.readRange({ startTimestamp: 1_000, endTimestamp: 2_000, stepMs: 0, symbol: "btc", marketType: "5m" });
   }, InvalidReadRangeError);
 });
