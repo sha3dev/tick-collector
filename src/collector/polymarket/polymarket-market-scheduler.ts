@@ -24,6 +24,8 @@ const MINUTES_TO_MS = 60_000;
 type SetTimeoutFn = (handler: () => void, timeoutMs: number) => NodeJS.Timeout;
 type ClearTimeoutFn = (timeout: NodeJS.Timeout) => void;
 type MarketContext = { symbol: CryptoSymbol | null; marketType: CryptoMarketWindow; marketSlug: string; marketSide: "up" | "down"; marketStartAt: number };
+type WindowAssets = { assetIds: Set<string>; marketContextByAssetId: Map<string, MarketContext> };
+type WindowSubscriptionDiff = { toSubscribe: string[]; toUnsubscribe: string[] };
 
 type PolymarketMarketSchedulerOptions = {
   marketsService: GammaMarketCatalogService;
@@ -61,6 +63,7 @@ export class PolymarketMarketScheduler {
   private readonly clearTimeoutFn: ClearTimeoutFn;
   private readonly timersByWindow: Map<CryptoMarketWindow, NodeJS.Timeout>;
   private readonly subscribedAssetIds: Set<string>;
+  private readonly subscribedAssetIdsByWindow: Map<CryptoMarketWindow, Set<string>>;
   private readonly marketContextByAssetId: Map<string, MarketContext>;
 
   /**
@@ -83,6 +86,7 @@ export class PolymarketMarketScheduler {
     this.clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
     this.timersByWindow = new Map<CryptoMarketWindow, NodeJS.Timeout>();
     this.subscribedAssetIds = new Set<string>();
+    this.subscribedAssetIdsByWindow = new Map<CryptoMarketWindow, Set<string>>();
     this.marketContextByAssetId = new Map<string, MarketContext>();
     this.isRunning = false;
   }
@@ -125,37 +129,87 @@ export class PolymarketMarketScheduler {
     return delayMs;
   }
 
-  private trackMarketAssets(markets: PolymarketMarket[], marketType: CryptoMarketWindow): string[] {
-    const toSubscribe: string[] = [];
-
+  private collectWindowAssets(markets: PolymarketMarket[], marketType: CryptoMarketWindow): WindowAssets {
+    const assetIds = new Set<string>();
+    const marketContextByAssetId = new Map<string, MarketContext>();
     for (const market of markets) {
       for (const assetId of market.clobTokenIds) {
+        assetIds.add(assetId);
         const marketSide = market.upTokenId === assetId ? "up" : "down";
-        this.marketContextByAssetId.set(assetId, {
-          symbol: market.symbol,
-          marketType,
-          marketSlug: market.slug,
-          marketSide,
-          marketStartAt: market.start.getTime()
-        });
-        const shouldSubscribe = !this.subscribedAssetIds.has(assetId);
-        if (shouldSubscribe) {
-          this.subscribedAssetIds.add(assetId);
-          toSubscribe.push(assetId);
-        }
+        marketContextByAssetId.set(assetId, { symbol: market.symbol, marketType, marketSlug: market.slug, marketSide, marketStartAt: market.start.getTime() });
       }
     }
-
-    return toSubscribe;
+    const result: WindowAssets = { assetIds, marketContextByAssetId };
+    return result;
   }
 
-  private async discoverAndSubscribeForWindow(window: CryptoMarketWindow, date: Date): Promise<void> {
-    const markets = await this.marketsService.loadCryptoWindowMarkets({ date, window, symbols: this.symbols });
-    const toSubscribe = this.trackMarketAssets(markets, window);
-    const hasNewAssets = toSubscribe.length > 0;
-    if (hasNewAssets) {
-      this.streamService.subscribe({ assetIds: toSubscribe });
+  private isTrackedByAnotherWindow(assetId: string, currentWindow: CryptoMarketWindow): boolean {
+    let isTracked = false;
+    for (const [window, windowAssetIds] of this.subscribedAssetIdsByWindow.entries()) {
+      if (window !== currentWindow && windowAssetIds.has(assetId)) {
+        isTracked = true;
+      }
     }
+    return isTracked;
+  }
+
+  private diffWindowSubscriptions(window: CryptoMarketWindow, nextAssetIds: Set<string>): WindowSubscriptionDiff {
+    const previousAssetIds = this.subscribedAssetIdsByWindow.get(window) ?? new Set<string>();
+    const toSubscribe: string[] = [];
+    const toUnsubscribe: string[] = [];
+    for (const assetId of nextAssetIds) {
+      if (!this.subscribedAssetIds.has(assetId)) {
+        toSubscribe.push(assetId);
+      }
+    }
+    for (const assetId of previousAssetIds) {
+      const isRemovedFromWindow = !nextAssetIds.has(assetId);
+      const shouldUnsubscribe = isRemovedFromWindow && !this.isTrackedByAnotherWindow(assetId, window);
+      if (shouldUnsubscribe) {
+        toUnsubscribe.push(assetId);
+      }
+    }
+    const result: WindowSubscriptionDiff = { toSubscribe, toUnsubscribe };
+    return result;
+  }
+
+  private applyWindowSubscriptions(options: {
+    window: CryptoMarketWindow;
+    nextAssetIds: Set<string>;
+    nextMarketContextByAssetId: Map<string, MarketContext>;
+    toSubscribe: string[];
+    toUnsubscribe: string[];
+  }): void {
+    this.subscribedAssetIdsByWindow.set(options.window, options.nextAssetIds);
+    for (const assetId of options.toUnsubscribe) {
+      this.subscribedAssetIds.delete(assetId);
+      this.marketContextByAssetId.delete(assetId);
+    }
+    for (const [assetId, context] of options.nextMarketContextByAssetId.entries()) {
+      this.marketContextByAssetId.set(assetId, context);
+    }
+    if (options.toUnsubscribe.length > 0) {
+      this.streamService.unsubscribe({ assetIds: options.toUnsubscribe });
+    }
+    if (options.toSubscribe.length > 0) {
+      for (const assetId of options.toSubscribe) {
+        this.subscribedAssetIds.add(assetId);
+      }
+      this.streamService.subscribe({ assetIds: options.toSubscribe });
+    }
+  }
+
+  private async discoverAndRefreshWindow(window: CryptoMarketWindow, date: Date): Promise<void> {
+    const markets = await this.marketsService.loadCryptoWindowMarkets({ date, window, symbols: this.symbols });
+    const windowAssets = this.collectWindowAssets(markets, window);
+    const subscriptionDiff = this.diffWindowSubscriptions(window, windowAssets.assetIds);
+    this.applyWindowSubscriptions({
+      window,
+      nextAssetIds: windowAssets.assetIds,
+      nextMarketContextByAssetId: windowAssets.marketContextByAssetId,
+      toSubscribe: subscriptionDiff.toSubscribe,
+      toUnsubscribe: subscriptionDiff.toUnsubscribe
+    });
   }
 
   private scheduleWindow(window: CryptoMarketWindow): void {
@@ -172,7 +226,7 @@ export class PolymarketMarketScheduler {
 
     if (isActive) {
       try {
-        await this.discoverAndSubscribeForWindow(window, now);
+        await this.discoverAndRefreshWindow(window, now);
       } finally {
         this.scheduleWindow(window);
       }
@@ -183,7 +237,7 @@ export class PolymarketMarketScheduler {
     const now = new Date(this.clock());
 
     for (const window of this.windows) {
-      await this.discoverAndSubscribeForWindow(window, now);
+      await this.discoverAndRefreshWindow(window, now);
     }
   }
 

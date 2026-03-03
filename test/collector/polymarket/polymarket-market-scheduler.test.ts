@@ -8,7 +8,12 @@ type FakeMarketsService = {
   loadCryptoWindowMarkets: (options: { date: Date; window: "5m" | "15m"; symbols: ("btc" | "eth" | "sol" | "xrp")[] }) => Promise<unknown[]>;
 };
 
-type FakeStreamService = { subscriptions: string[][]; subscribe: (options: { assetIds: string[] }) => void };
+type FakeStreamService = {
+  subscriptions: string[][];
+  unsubscriptions: string[][];
+  subscribe: (options: { assetIds: string[] }) => void;
+  unsubscribe: (options: { assetIds: string[] }) => void;
+};
 
 function createFakeMarketsService(): FakeMarketsService {
   const calls: { window: string; date: Date }[] = [];
@@ -43,10 +48,15 @@ function createFakeMarketsService(): FakeMarketsService {
 
 function createFakeStreamService(): FakeStreamService {
   const subscriptions: string[][] = [];
+  const unsubscriptions: string[][] = [];
   const service: FakeStreamService = {
     subscriptions,
+    unsubscriptions,
     subscribe: (options): void => {
       subscriptions.push(options.assetIds);
+    },
+    unsubscribe: (options): void => {
+      unsubscriptions.push(options.assetIds);
     }
   };
   return service;
@@ -87,4 +97,85 @@ test("polymarket market scheduler subscribes current windows and schedules next 
     scheduledTimeouts.sort((left, right) => left - right),
     [270000, 270000]
   );
+});
+
+test("polymarket market scheduler unsubscribes stale markets and subscribes new ones on boundary refresh", async () => {
+  let loadCount = 0;
+  const streamService = createFakeStreamService();
+  const handlers: (() => void)[] = [];
+  const marketsService: FakeMarketsService = {
+    calls: [],
+    loadCryptoWindowMarkets: async (): Promise<unknown[]> => {
+      loadCount += 1;
+      const markets =
+        loadCount === 1
+          ? [
+              {
+                id: "1",
+                slug: "market-a",
+                question: "q",
+                symbol: "btc" as const,
+                conditionId: "c",
+                outcomes: [],
+                clobTokenIds: ["asset-a"],
+                upTokenId: "asset-a",
+                downTokenId: "asset-z",
+                orderMinSize: 1,
+                orderPriceMinTickSize: null,
+                eventStartTime: "",
+                endDate: "",
+                start: new Date(),
+                end: new Date(),
+                raw: {}
+              }
+            ]
+          : [
+              {
+                id: "2",
+                slug: "market-b",
+                question: "q",
+                symbol: "btc" as const,
+                conditionId: "c",
+                outcomes: [],
+                clobTokenIds: ["asset-b"],
+                upTokenId: "asset-b",
+                downTokenId: "asset-z",
+                orderMinSize: 1,
+                orderPriceMinTickSize: null,
+                eventStartTime: "",
+                endDate: "",
+                start: new Date(),
+                end: new Date(),
+                raw: {}
+              }
+            ];
+      return markets;
+    }
+  };
+  const scheduler = PolymarketMarketScheduler.create({
+    marketsService: marketsService as never,
+    streamService: streamService as never,
+    symbols: ["btc", "eth", "sol", "xrp"],
+    windows: ["5m"],
+    clock: () => Date.UTC(2026, 0, 1, 0, 10, 30),
+    setTimeoutFn: (handler) => {
+      handlers.push(handler);
+      return { unref: () => undefined } as unknown as NodeJS.Timeout;
+    },
+    clearTimeoutFn: () => undefined
+  });
+
+  await scheduler.start();
+  const boundaryHandler = handlers[0];
+  if (boundaryHandler) {
+    boundaryHandler();
+  }
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+  await scheduler.stop();
+
+  assert.equal(streamService.subscriptions[0]?.includes("asset-a"), true);
+  assert.equal(streamService.unsubscriptions[0]?.includes("asset-a"), true);
+  assert.equal(streamService.subscriptions[1]?.includes("asset-b"), true);
 });
