@@ -39,9 +39,9 @@
     "lastRefreshWith": "0.1.22"
   },
   "dependencies": {
-    "@sha3/crypto": "^0.5.0",
-    "@sha3/logger": "^2.0.0",
-    "@sha3/polymarket": "^0.5.0",
+    "@sha3/crypto": "*",
+    "@sha3/logger": "*",
+    "@sha3/polymarket": "*",
     "dotenv": "^16.6.1"
   }
 }
