@@ -2,6 +2,7 @@ import * as assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { EventCoalescer } from "../../../src/collector/pipeline/event-coalescer.ts";
+import type { CoalescedWindowSummary } from "../../../src/collector/pipeline/types/coalesced-window-summary.ts";
 import type { StoredEvent } from "../../../src/collector/types/stored-event.ts";
 
 function buildEvent(options: {
@@ -77,4 +78,33 @@ test("event coalescer flushAll drains pending buckets", async () => {
   await coalescer.flushAll();
 
   assert.equal(emitted.length, 2);
+});
+
+test("event coalescer emits window summary with counts by event type", async () => {
+  const emitted: StoredEvent[] = [];
+  const summaries: CoalescedWindowSummary[] = [];
+  const coalescer = EventCoalescer.create({
+    intervalMs: 500,
+    onEmitMany: async (events) => {
+      emitted.push(...events);
+    },
+    onWindowEmitted: (summary) => {
+      summaries.push(summary);
+    }
+  });
+
+  await coalescer.append(buildEvent({ eventId: "1", ingestedAt: 100, sequence: 1, eventType: "crypto.price" }));
+  await coalescer.append(buildEvent({ eventId: "2", ingestedAt: 120, sequence: 2, eventType: "crypto.trade" }));
+  await coalescer.append(buildEvent({ eventId: "3", ingestedAt: 130, sequence: 3, eventType: "crypto.price", symbol: "eth" }));
+  await coalescer.flushReady(600);
+
+  assert.equal(emitted.length, 3);
+  assert.equal(summaries.length, 1);
+  assert.equal(summaries[0]?.windowStartAt, 0);
+  assert.equal(summaries[0]?.windowEndAt, 500);
+  assert.equal(summaries[0]?.eventCount, 3);
+  assert.deepEqual(summaries[0]?.eventTypeCounts, [
+    { eventType: "crypto.price", count: 2 },
+    { eventType: "crypto.trade", count: 1 }
+  ]);
 });

@@ -2,7 +2,7 @@ const CONFIG = {
   COLLECTOR: {
     symbols: ["btc", "eth", "sol", "xrp"],
     windows: ["5m", "15m"],
-    enabledSources: ["binance", "chainlink", "polymarket"],
+    enabledSources: ["binance", "chainlink", "polymarket", "coinbase", "kraken", "okx"],
     coalesceIntervalMs: 500,
     outputDir: "data",
     flushIntervalMs: 60_000,

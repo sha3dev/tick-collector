@@ -3,6 +3,7 @@
  */
 
 import type { ClientOptions, CryptoProviderId } from "@sha3/crypto";
+import Logger from "@sha3/logger";
 import type { CryptoMarketWindow, CryptoSymbol, PolymarketClientOptions } from "@sha3/polymarket";
 
 /**
@@ -14,8 +15,10 @@ import { InvalidCollectorSourcesError } from "../errors/invalid-collector-source
 import { CryptoFeedAdapter } from "../crypto/crypto-feed-adapter.ts";
 import { EventCoalescer } from "../pipeline/event-coalescer.ts";
 import { EventEnvelopeFactory } from "../pipeline/event-envelope-factory.ts";
+import type { CoalescedWindowSummary } from "../pipeline/types/coalesced-window-summary.ts";
 import { PolymarketFeedAdapter } from "../polymarket/polymarket-feed-adapter.ts";
 import { EventStorageService } from "../storage/event-storage-service.ts";
+import type { CollectorLogger } from "../types/collector-logger.ts";
 import type { CollectorSources } from "../types/collector-sources.ts";
 import type { StoredEvent } from "../types/stored-event.ts";
 
@@ -24,6 +27,7 @@ import type { StoredEvent } from "../types/stored-event.ts";
  */
 
 const MIN_COALESCER_FLUSH_MS = 50;
+const DEFAULT_LOGGER_NAME = "collector:app";
 const SUPPORTED_CRYPTO_PROVIDERS = ["binance", "coinbase", "kraken", "okx", "chainlink"] as const;
 
 /**
@@ -47,6 +51,7 @@ type CollectorAppFactoryOptions = {
   windows: CryptoMarketWindow[];
   enabledSources: CollectorSources;
   coalesceIntervalMs: number;
+  logger?: CollectorLogger;
   cryptoClientOptions?: ClientOptions;
   polymarketClientOptions?: PolymarketClientOptions;
 };
@@ -110,6 +115,7 @@ export class CollectorApp {
   public static create(options: CollectorAppFactoryOptions): CollectorApp {
     const sourceSplit = CollectorApp.splitEnabledSources(options.enabledSources);
     const hasEffectiveSources = sourceSplit.cryptoProviders.length > 0 || sourceSplit.polymarketEnabled;
+    const logger = options.logger ?? new Logger({ loggerName: DEFAULT_LOGGER_NAME });
     if (!hasEffectiveSources) {
       throw InvalidCollectorSourcesError.fromConfiguredSources(options.enabledSources);
     }
@@ -128,7 +134,11 @@ export class CollectorApp {
     const onEmitMany = async (events: StoredEvent[]): Promise<void> => {
       await storage.appendMany(events);
     };
-    const coalescer = EventCoalescer.create({ intervalMs: options.coalesceIntervalMs, onEmitMany });
+    const onWindowEmitted = (summary: CoalescedWindowSummary): void => {
+      const message = CollectorApp.formatWindowSummary(summary);
+      logger.info(message);
+    };
+    const coalescer = EventCoalescer.create({ intervalMs: options.coalesceIntervalMs, onEmitMany, onWindowEmitted });
     const onStoredEvent = async (event: StoredEvent): Promise<void> => {
       await coalescer.append(event);
     };
@@ -160,6 +170,15 @@ export class CollectorApp {
 
     const split: EnabledSourceSplit = { cryptoProviders, polymarketEnabled };
     return split;
+  }
+
+  private static formatWindowSummary(summary: CoalescedWindowSummary): string {
+    const eventTypeCounts = summary.eventTypeCounts.map((eventTypeCount) => {
+      return `${eventTypeCount.eventType}:${eventTypeCount.count}`;
+    });
+    const countsText = eventTypeCounts.join(",");
+    const message = `[WINDOW] closed start=${summary.windowStartAt} end=${summary.windowEndAt} events=${summary.eventCount} counts=${countsText}`;
+    return message;
   }
 
   private static buildCryptoAdapter(options: {
