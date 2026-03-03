@@ -50,6 +50,7 @@ export class EventCoalescer {
   private readonly onEmitMany: (events: StoredEvent[]) => Promise<void>;
   private readonly onWindowEmitted: ((summary: CoalescedWindowSummary) => void) | null;
   private readonly buckets: Map<number, BucketEventMap>;
+  private readonly emittingBucketIds: Set<number>;
 
   /**
    * @section public:properties
@@ -66,6 +67,7 @@ export class EventCoalescer {
     this.onEmitMany = options.onEmitMany;
     this.onWindowEmitted = options.onWindowEmitted ?? null;
     this.buckets = new Map<number, BucketEventMap>();
+    this.emittingBucketIds = new Set<number>();
   }
 
   /**
@@ -114,19 +116,47 @@ export class EventCoalescer {
 
   private async emitBuckets(bucketIds: number[]): Promise<void> {
     for (const bucketId of bucketIds) {
-      const bucket = this.buckets.get(bucketId);
-      if (bucket) {
-        const events = Array.from(bucket.values()).sort((left, right) => {
-          const ingestedOrder = left.ingestedAt - right.ingestedAt;
-          const sequenceOrder = left.sequence - right.sequence;
-          const order = ingestedOrder === 0 ? sequenceOrder : ingestedOrder;
-          return order;
-        });
-        await this.onEmitMany(events);
-        this.emitWindowSummary(bucketId, events);
-        this.buckets.delete(bucketId);
+      await this.emitBucket(bucketId);
+    }
+  }
+
+  private async emitBucket(bucketId: number): Promise<void> {
+    const canEmit = this.reserveBucketEmission(bucketId);
+    if (canEmit) {
+      try {
+        const events = this.toSortedBucketEvents(bucketId);
+        const hasEvents = events.length > 0;
+        if (hasEvents) {
+          await this.onEmitMany(events);
+          this.emitWindowSummary(bucketId, events);
+          this.buckets.delete(bucketId);
+        }
+      } finally {
+        this.emittingBucketIds.delete(bucketId);
       }
     }
+  }
+
+  private reserveBucketEmission(bucketId: number): boolean {
+    const hasBucket = this.buckets.has(bucketId);
+    const isAlreadyEmitting = this.emittingBucketIds.has(bucketId);
+    const canEmit = hasBucket && !isAlreadyEmitting;
+    if (canEmit) {
+      this.emittingBucketIds.add(bucketId);
+    }
+    return canEmit;
+  }
+
+  private toSortedBucketEvents(bucketId: number): StoredEvent[] {
+    const bucket = this.buckets.get(bucketId);
+    const events = bucket ? Array.from(bucket.values()) : [];
+    const sortedEvents = events.sort((left, right) => {
+      const ingestedOrder = left.ingestedAt - right.ingestedAt;
+      const sequenceOrder = left.sequence - right.sequence;
+      const order = ingestedOrder === 0 ? sequenceOrder : ingestedOrder;
+      return order;
+    });
+    return sortedEvents;
   }
 
   private emitWindowSummary(bucketId: number, events: StoredEvent[]): void {

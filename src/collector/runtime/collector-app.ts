@@ -29,6 +29,7 @@ import type { StoredEvent } from "../types/stored-event.ts";
 const MIN_COALESCER_FLUSH_MS = 50;
 const DEFAULT_LOGGER_NAME = "collector:app";
 const SUPPORTED_CRYPTO_PROVIDERS = ["binance", "coinbase", "kraken", "okx", "chainlink"] as const;
+const ORDERBOOK_AND_TRADE_PROVIDERS = ["binance", "coinbase", "kraken", "okx"] as const;
 
 /**
  * @section types
@@ -57,6 +58,7 @@ type CollectorAppFactoryOptions = {
 };
 
 type EnabledSourceSplit = { cryptoProviders: CryptoProviderId[]; polymarketEnabled: boolean };
+type WindowCoverage = { coverage: "complete" | "partial"; expected: string[]; missing: string[]; extras: string[] };
 
 export class CollectorApp {
   /**
@@ -116,6 +118,7 @@ export class CollectorApp {
     const sourceSplit = CollectorApp.splitEnabledSources(options.enabledSources);
     const hasEffectiveSources = sourceSplit.cryptoProviders.length > 0 || sourceSplit.polymarketEnabled;
     const logger = options.logger ?? new Logger({ loggerName: DEFAULT_LOGGER_NAME });
+    const expectedEventTypes = CollectorApp.resolveExpectedEventTypes(sourceSplit);
     if (!hasEffectiveSources) {
       throw InvalidCollectorSourcesError.fromConfiguredSources(options.enabledSources);
     }
@@ -135,7 +138,7 @@ export class CollectorApp {
       await storage.appendMany(events);
     };
     const onWindowEmitted = (summary: CoalescedWindowSummary): void => {
-      const message = CollectorApp.formatWindowSummary(summary);
+      const message = CollectorApp.formatWindowSummary(summary, expectedEventTypes);
       logger.info(message);
     };
     const coalescer = EventCoalescer.create({ intervalMs: options.coalesceIntervalMs, onEmitMany, onWindowEmitted });
@@ -172,13 +175,66 @@ export class CollectorApp {
     return split;
   }
 
-  private static formatWindowSummary(summary: CoalescedWindowSummary): string {
-    const eventTypeCounts = summary.eventTypeCounts.map((eventTypeCount) => {
-      return `${eventTypeCount.eventType}:${eventTypeCount.count}`;
-    });
-    const countsText = eventTypeCounts.join(",");
-    const message = `[WINDOW] closed start=${summary.windowStartAt} end=${summary.windowEndAt} events=${summary.eventCount} counts=${countsText}`;
+  private static formatWindowSummary(summary: CoalescedWindowSummary, expectedEventTypes: string[]): string {
+    const coverage = CollectorApp.resolveWindowCoverage(summary, expectedEventTypes);
+    const countsText = CollectorApp.toCoverageCountsText(summary, coverage.expected);
+    const missingText = coverage.missing.length > 0 ? coverage.missing.join("|") : "none";
+    const extrasText = coverage.extras.length > 0 ? coverage.extras.join("|") : "none";
+    const message = `[WINDOW] closed start=${summary.windowStartAt} end=${summary.windowEndAt} events=${summary.eventCount} coverage=${coverage.coverage} counts=${countsText} missing=${missingText} extra=${extrasText}`;
     return message;
+  }
+
+  private static resolveExpectedEventTypes(sourceSplit: EnabledSourceSplit): string[] {
+    const expectedEventTypes: string[] = [];
+    const hasCrypto = sourceSplit.cryptoProviders.length > 0;
+    const hasOrderbookAndTradeProvider = sourceSplit.cryptoProviders.some((provider) => {
+      return ORDERBOOK_AND_TRADE_PROVIDERS.includes(provider as (typeof ORDERBOOK_AND_TRADE_PROVIDERS)[number]);
+    });
+    if (hasCrypto) {
+      expectedEventTypes.push("crypto.status");
+      expectedEventTypes.push("crypto.price");
+    }
+    if (hasOrderbookAndTradeProvider) {
+      expectedEventTypes.push("crypto.orderbook");
+      expectedEventTypes.push("crypto.trade");
+    }
+    if (sourceSplit.polymarketEnabled) {
+      expectedEventTypes.push("polymarket.price");
+      expectedEventTypes.push("polymarket.book");
+    }
+    return expectedEventTypes;
+  }
+
+  private static resolveWindowCoverage(summary: CoalescedWindowSummary, expectedEventTypes: string[]): WindowCoverage {
+    const observedEventTypes = summary.eventTypeCounts.map((eventTypeCount) => {
+      return eventTypeCount.eventType;
+    });
+    const expected = expectedEventTypes.length > 0 ? expectedEventTypes : observedEventTypes;
+    const missing = expected.filter((eventType) => {
+      const count = summary.eventTypeCounts.find((eventTypeCount) => {
+        return eventTypeCount.eventType === eventType;
+      });
+      return (count?.count ?? 0) === 0;
+    });
+    const extras = observedEventTypes.filter((eventType) => {
+      return !expected.includes(eventType);
+    });
+    const coverage: "complete" | "partial" = missing.length === 0 ? "complete" : "partial";
+    const output: WindowCoverage = { coverage, expected, missing, extras };
+    return output;
+  }
+
+  private static toCoverageCountsText(summary: CoalescedWindowSummary, expectedEventTypes: string[]): string {
+    const countsByType = new Map<string, number>();
+    for (const eventTypeCount of summary.eventTypeCounts) {
+      countsByType.set(eventTypeCount.eventType, eventTypeCount.count);
+    }
+    const rows = expectedEventTypes.map((eventType) => {
+      const count = countsByType.get(eventType) ?? 0;
+      return `${eventType}:${count}`;
+    });
+    const text = rows.join(",");
+    return text;
   }
 
   private static buildCryptoAdapter(options: {

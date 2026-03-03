@@ -197,5 +197,8 @@ test("collector app create logs summary when coalescer emits closed window", asy
     ]
   });
   assert.equal(messages.length, 1);
-  assert.equal(messages[0], "[WINDOW] closed start=1500 end=2000 events=5 counts=crypto.price:2,polymarket.book:3");
+  assert.equal(
+    messages[0],
+    "[WINDOW] closed start=1500 end=2000 events=5 coverage=partial counts=polymarket.price:0,polymarket.book:3 missing=polymarket.price extra=crypto.price"
+  );
 });

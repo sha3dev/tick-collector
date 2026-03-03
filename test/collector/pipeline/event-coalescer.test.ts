@@ -108,3 +108,36 @@ test("event coalescer emits window summary with counts by event type", async () 
     { eventType: "crypto.trade", count: 1 }
   ]);
 });
+
+test("event coalescer emits closed window only once under concurrent flush", async () => {
+  const emittedBatches: StoredEvent[][] = [];
+  const summaries: CoalescedWindowSummary[] = [];
+  let unblockEmission: (() => void) | null = null;
+  const waitForEmission = new Promise<void>((resolve) => {
+    unblockEmission = resolve;
+  });
+  const coalescer = EventCoalescer.create({
+    intervalMs: 500,
+    onEmitMany: async (events) => {
+      emittedBatches.push(events);
+      await waitForEmission;
+    },
+    onWindowEmitted: (summary) => {
+      summaries.push(summary);
+    }
+  });
+
+  await coalescer.append(buildEvent({ eventId: "1", ingestedAt: 100, sequence: 1, eventType: "crypto.price" }));
+  const firstFlush = coalescer.flushReady(600);
+  const secondFlush = coalescer.flushReady(600);
+  const releaseEmission =
+    unblockEmission ??
+    (() => {
+      // empty
+    });
+  releaseEmission();
+  await Promise.all([firstFlush, secondFlush]);
+
+  assert.equal(emittedBatches.length, 1);
+  assert.equal(summaries.length, 1);
+});
