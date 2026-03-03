@@ -2,26 +2,28 @@
  * @section imports:externals
  */
 
-// empty
+import Logger from "@sha3/logger";
 
 /**
  * @section imports:internals
  */
 
 import { CollectorBootstrapError } from "../errors/collector-bootstrap-error.ts";
+import type { CollectorLogger } from "../types/collector-logger.ts";
 import type { CollectorApp } from "./collector-app.ts";
 
 /**
  * @section consts
  */
 
-// empty
+const DEFAULT_LOGGER_NAME = "collector:cli";
 
 /**
  * @section types
  */
 
-type CollectorCliOptions = { app: CollectorApp };
+type CollectorCliOptions = { app: CollectorApp; logger: CollectorLogger };
+type CollectorCliFactoryOptions = { app: CollectorApp; logger?: CollectorLogger };
 
 export class CollectorCli {
   /**
@@ -41,6 +43,7 @@ export class CollectorCli {
    */
 
   private readonly app: CollectorApp;
+  private readonly logger: CollectorLogger;
 
   /**
    * @section public:properties
@@ -54,6 +57,7 @@ export class CollectorCli {
 
   public constructor(options: CollectorCliOptions) {
     this.app = options.app;
+    this.logger = options.logger;
   }
 
   /**
@@ -66,8 +70,9 @@ export class CollectorCli {
    * @section factory
    */
 
-  public static create(options: CollectorCliOptions): CollectorCli {
-    const cli = new CollectorCli(options);
+  public static create(options: CollectorCliFactoryOptions): CollectorCli {
+    const logger = options.logger ?? new Logger({ loggerName: DEFAULT_LOGGER_NAME });
+    const cli = new CollectorCli({ app: options.app, logger });
     return cli;
   }
 
@@ -100,10 +105,16 @@ export class CollectorCli {
 
   public async run(): Promise<void> {
     try {
+      this.logger.info("starting collector app");
       await this.app.start();
+      this.logger.info("collector app started");
       await this.waitForSignals();
+      this.logger.info("shutdown signal received");
       await this.app.stop();
+      this.logger.info("collector app stopped");
     } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`collector cli failed: ${message}`);
       throw CollectorBootstrapError.fromCause("collector cli failed", error);
     }
   }
