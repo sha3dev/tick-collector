@@ -146,7 +146,10 @@ test("window event reader never mixes polymarket 5m and 15m while keeping crypto
   assert.equal(batch.events.length, 2);
   assert.equal(batch.events[0]?.eventId, "crypto-btc");
   assert.equal(batch.events[1]?.eventId, "poly-5m");
-  assert.equal(batch.events.some((event) => event.eventId === "poly-15m"), false);
+  assert.equal(
+    batch.events.some((event) => event.eventId === "poly-15m"),
+    false
+  );
   assert.equal(batch.stats.cryptoEvents, 1);
   assert.equal(batch.stats.polymarketEvents, 1);
 });
@@ -236,5 +239,8 @@ test("window event reader keeps one polymarket slug in same window using index/s
   assert.equal(batch.events.length, 2);
   assert.equal(batch.events[0]?.eventId, "poly-new-first");
   assert.equal(batch.events[1]?.eventId, "poly-new-second");
-  assert.equal(batch.events.some((event) => event.eventId === "poly-old-late"), false);
+  assert.equal(
+    batch.events.some((event) => event.eventId === "poly-old-late"),
+    false
+  );
 });

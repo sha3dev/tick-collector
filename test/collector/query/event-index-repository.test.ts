@@ -274,12 +274,7 @@ test("event index repository range keeps crypto by symbol and polymarket only fo
   await writeFile(path.join(manifestFolder, "part-00000001.index.json"), JSON.stringify(index), "utf8");
 
   const repository = EventIndexRepository.create({ folder: root });
-  const eventsIn5m = await repository.findEventsInRange({
-    startTimestamp: 1000,
-    endTimestampExclusive: 2000,
-    symbol: "btc",
-    marketType: "5m"
-  });
+  const eventsIn5m = await repository.findEventsInRange({ startTimestamp: 1000, endTimestampExclusive: 2000, symbol: "btc", marketType: "5m" });
 
   assert.equal(eventsIn5m.length, 2);
   assert.equal(eventsIn5m[0]?.eventId, "crypto-btc");

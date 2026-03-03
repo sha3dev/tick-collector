@@ -119,13 +119,8 @@ export class WindowEventReader {
     const windowEndAt = options.windowStartAt + windowMs;
     const inTimeRange = event.ingestedAt >= options.windowStartAt && event.ingestedAt < windowEndAt;
     const isCrypto = event.source === "crypto" && event.symbol === options.symbol;
-    const marketStartMatch =
-      event.marketStartAt === undefined || this.alignWindowStart(event.marketStartAt, options.marketType) === options.windowStartAt;
-    const isPolymarket =
-      event.source === "polymarket" &&
-      event.symbol === options.symbol &&
-      event.marketType === options.marketType &&
-      marketStartMatch;
+    const marketStartMatch = event.marketStartAt === undefined || this.alignWindowStart(event.marketStartAt, options.marketType) === options.windowStartAt;
+    const isPolymarket = event.source === "polymarket" && event.symbol === options.symbol && event.marketType === options.marketType && marketStartMatch;
     const match = inTimeRange && (isCrypto || isPolymarket);
     return match;
   }

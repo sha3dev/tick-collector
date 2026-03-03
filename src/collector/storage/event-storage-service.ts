@@ -8,7 +8,7 @@
  * @section imports:internals
  */
 
-import { GzipRotatingWriter } from "./gzip-rotating-writer.ts";
+import { HourPartitionWriter } from "./hour-partition-writer.ts";
 import type { StoredEvent } from "../types/stored-event.ts";
 import type { GzipRotatingWriterOptions } from "../types/storage-types.ts";
 
@@ -41,7 +41,7 @@ export class EventStorageService {
    * @section private:properties
    */
 
-  private readonly writer: GzipRotatingWriter;
+  private readonly writer: HourPartitionWriter;
 
   /**
    * @section public:properties
@@ -53,7 +53,7 @@ export class EventStorageService {
    * @section constructor
    */
 
-  public constructor(writer: GzipRotatingWriter) {
+  public constructor(writer: HourPartitionWriter) {
     this.writer = writer;
   }
 
@@ -68,7 +68,7 @@ export class EventStorageService {
    */
 
   public static create(options: GzipRotatingWriterOptions): EventStorageService {
-    const writer = GzipRotatingWriter.create(options);
+    const writer = HourPartitionWriter.create(options);
     const service = new EventStorageService(writer);
     return service;
   }

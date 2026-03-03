@@ -52,13 +52,15 @@ type StoredEvent = {
   symbol?: string;
   provider?: string;
   marketType?: "5m" | "15m";
+  marketSlug?: string;
   marketStartAt?: number; // UTC epoch ms for market window start
+  marketEventIndex?: number;
   assetId?: string;
   payload: unknown; // raw event payload
 };
 ```
 
-`marketSlug` is intentionally not persisted. Non-applicable fields are omitted (not stored as `null`).
+Non-applicable fields are omitted (not stored as `null`).
 
 ## JSON Line Types
 
@@ -79,21 +81,23 @@ Each line in `.ndjson.gz` is one `StoredEvent`. These are the concrete line cate
 
 ## Storage Layout
 
-Flat folders by artifact type (time metadata is embedded in file names):
+Partitioned by UTC hour:
 
 ```text
 data/
-  journal/part-XXXXXXXX-YYYYMMDD-HHMMSS-<ingestedAt>.ndjson.gz
-  manifests/part-XXXXXXXX-YYYYMMDD-HHMMSS-<ingestedAt>.manifest.json
-  manifests/part-XXXXXXXX-YYYYMMDD-HHMMSS-<ingestedAt>.index.json
+  journal/YYYY/MM/DD/HH/part-<runId>-<seq>.ndjson.gz
+  manifests/YYYY/MM/DD/HH/part-<runId>-<seq>.manifest.json
+  manifests/YYYY/MM/DD/HH/part-<runId>-<seq>.index.json
 ```
-
-The `<ingestedAt>` suffix is UTC epoch milliseconds for the part start event.
 
 Manifest fields:
 
 - file
 - indexFile
+- runId
+- partSequence
+- hourBucketStartAt
+- isClosed
 - minIngestedAt
 - maxIngestedAt
 - eventCount

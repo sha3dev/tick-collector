@@ -23,6 +23,10 @@
 export type PartManifest = {
   file: string;
   indexFile: string;
+  runId: string;
+  partSequence: number;
+  hourBucketStartAt: number;
+  isClosed: boolean;
   minIngestedAt: number;
   maxIngestedAt: number;
   eventCount: number;
