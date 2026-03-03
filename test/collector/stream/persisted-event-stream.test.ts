@@ -1,68 +1,77 @@
 import * as assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 import { test } from "node:test";
-import { gzipSync } from "node:zlib";
 
+import type { MarketDataPoint } from "../../../src/collector/query/types/market-data-point.ts";
 import { PersistedEventStream } from "../../../src/collector/stream/persisted-event-stream.ts";
-import type { StoredEvent } from "../../../src/collector/types/stored-event.ts";
 
-async function writePartFile(root: string, relativePath: string, events: StoredEvent[]): Promise<void> {
-  const fullPath = path.join(root, relativePath);
-  const folder = path.dirname(fullPath);
-  const payload = `${events.map((event) => JSON.stringify(event)).join("\n")}\n`;
-  await mkdir(folder, { recursive: true });
-  await writeFile(fullPath, gzipSync(payload));
-}
-
-function buildEvent(options: { eventId: string; ingestedAt: number; sequence: number }): StoredEvent {
-  const event: StoredEvent = {
-    eventId: options.eventId,
-    source: "crypto",
-    eventType: "crypto.price",
-    ingestedAt: options.ingestedAt,
-    exchangeTs: options.ingestedAt,
-    sequence: options.sequence,
+test("persisted event stream read delegates options to datapoint reader", async () => {
+  let receivedMarketSlug: string | null = null;
+  let receivedTimestamp: number | null = null;
+  const expected: MarketDataPoint = {
+    timestamp: 123,
+    marketSlug: "btc-updown-5m-1",
     symbol: "btc",
-    provider: "binance",
-    marketSlug: null,
-    assetId: null,
-    payload: { id: options.eventId }
+    cryptoPricesBySource: { binance: 10, chainlink: 11 },
+    polymarket: { upPrice: 0.6, downPrice: 0.4, orderbook: { bids: [], asks: [] } },
+    exchangeOrderbooksBySource: { binance: { bids: [], asks: [] } },
+    coverage: { missingFields: [], selectedEvents: [] }
   };
-  return event;
-}
+  const reader = {
+    read: async (options: { timestamp: number; marketSlug: string }): Promise<MarketDataPoint> => {
+      receivedTimestamp = options.timestamp;
+      receivedMarketSlug = options.marketSlug;
+      return expected;
+    }
+  } as never;
+  const stream = PersistedEventStream.create({ folder: "data", reader });
 
-test("persisted event stream reads events one by one in chronological ascending order", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tick-collector-stream-"));
-  await writePartFile(root, "journal/2026/03/02/17/part-00000001.ndjson.gz", [buildEvent({ eventId: "b", ingestedAt: 200, sequence: 2 })]);
-  await writePartFile(root, "journal/2026/03/02/17/part-00000002.ndjson.gz", [buildEvent({ eventId: "a", ingestedAt: 100, sequence: 1 })]);
-  await writePartFile(root, "journal/2026/03/02/17/part-00000003.ndjson.gz", [buildEvent({ eventId: "c", ingestedAt: 300, sequence: 3 })]);
+  const datapoint = await stream.read({ timestamp: 123, marketSlug: "btc-updown-5m-1" });
 
-  const stream = PersistedEventStream.create({ folder: root });
-  const first = await stream.readNext();
-  const second = await stream.readNext();
-  const third = await stream.readNext();
-  const fourth = await stream.readNext();
-
-  assert.equal(first?.eventId, "a");
-  assert.equal(second?.eventId, "b");
-  assert.equal(third?.eventId, "c");
-  assert.equal(fourth, null);
+  assert.equal(receivedTimestamp, 123);
+  assert.equal(receivedMarketSlug, "btc-updown-5m-1");
+  assert.equal(datapoint?.marketSlug, "btc-updown-5m-1");
 });
 
-test("persisted event stream applies minIngestedAtExclusive filter", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tick-collector-stream-filter-"));
-  await writePartFile(root, "journal/2026/03/02/17/part-00000001.ndjson.gz", [
-    buildEvent({ eventId: "a", ingestedAt: 100, sequence: 1 }),
-    buildEvent({ eventId: "b", ingestedAt: 200, sequence: 2 }),
-    buildEvent({ eventId: "c", ingestedAt: 300, sequence: 3 })
-  ]);
+test("persisted event stream read forwards optional overrides", async () => {
+  let receivedOrderbookLevels: number | null = null;
+  let receivedMaxDistanceMs: number | null = null;
+  const reader = {
+    read: async (options: { maxDistanceMs?: number; orderbookLevels?: number }): Promise<MarketDataPoint | null> => {
+      receivedMaxDistanceMs = options.maxDistanceMs ?? null;
+      receivedOrderbookLevels = options.orderbookLevels ?? null;
+      return null;
+    }
+  } as never;
+  const stream = PersistedEventStream.create({ folder: "data", reader });
 
-  const stream = PersistedEventStream.create({ folder: root, minIngestedAtExclusive: 200 });
-  const first = await stream.readNext();
-  const second = await stream.readNext();
+  const datapoint = await stream.read({ timestamp: 100, marketSlug: "market", maxDistanceMs: 5000, orderbookLevels: 7 });
 
-  assert.equal(first?.eventId, "c");
-  assert.equal(second, null);
+  assert.equal(receivedMaxDistanceMs, 5000);
+  assert.equal(receivedOrderbookLevels, 7);
+  assert.equal(datapoint, null);
+});
+
+test("persisted event stream readRange delegates options to datapoint reader", async () => {
+  let receivedStartTimestamp: number | null = null;
+  let receivedEndTimestamp: number | null = null;
+  let receivedStepMs: number | null = null;
+  const reader = {
+    read: async (): Promise<MarketDataPoint | null> => {
+      return null;
+    },
+    readRange: async (options: { startTimestamp: number; endTimestamp: number; stepMs: number }): Promise<MarketDataPoint[]> => {
+      receivedStartTimestamp = options.startTimestamp;
+      receivedEndTimestamp = options.endTimestamp;
+      receivedStepMs = options.stepMs;
+      return [];
+    }
+  } as never;
+  const stream = PersistedEventStream.create({ folder: "data", reader });
+
+  const datapoints = await stream.readRange({ startTimestamp: 100, endTimestamp: 300, stepMs: 100, marketSlug: "market-1" });
+
+  assert.equal(receivedStartTimestamp, 100);
+  assert.equal(receivedEndTimestamp, 300);
+  assert.equal(receivedStepMs, 100);
+  assert.equal(datapoints.length, 0);
 });

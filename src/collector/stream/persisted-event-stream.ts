@@ -2,15 +2,17 @@
  * @section imports:externals
  */
 
-import { readdir, readFile } from "node:fs/promises";
-import * as path from "node:path";
-import { gunzipSync } from "node:zlib";
+// empty
 
 /**
  * @section imports:internals
  */
 
-import type { StoredEvent } from "../types/stored-event.ts";
+import CONFIG from "../../config.ts";
+import { MarketDataPointReader } from "../query/market-data-point-reader.ts";
+import type { MarketDataPoint } from "../query/types/market-data-point.ts";
+import type { ReadDataPointOptions } from "../query/types/read-data-point-options.ts";
+import type { ReadDataPointRangeOptions } from "../query/types/read-data-point-range-options.ts";
 
 /**
  * @section consts
@@ -22,14 +24,14 @@ import type { StoredEvent } from "../types/stored-event.ts";
  * @section types
  */
 
-type PersistedEventStreamOptions = { folder: string; minIngestedAtExclusive?: number };
+type PersistedEventStreamOptions = { folder: string; reader?: MarketDataPointReader };
 
 export class PersistedEventStream {
   /**
    * @section private:attributes
    */
 
-  private isLoaded: boolean;
+  // empty
 
   /**
    * @section protected:attributes
@@ -41,10 +43,7 @@ export class PersistedEventStream {
    * @section private:properties
    */
 
-  private readonly folder: string;
-  private readonly minIngestedAtExclusive: number | null;
-  private readonly events: StoredEvent[];
-  private currentIndex: number;
+  private readonly reader: MarketDataPointReader;
 
   /**
    * @section public:properties
@@ -57,11 +56,18 @@ export class PersistedEventStream {
    */
 
   public constructor(options: PersistedEventStreamOptions) {
-    this.folder = options.folder;
-    this.minIngestedAtExclusive = options.minIngestedAtExclusive ?? null;
-    this.events = [];
-    this.currentIndex = 0;
-    this.isLoaded = false;
+    this.reader =
+      options.reader ??
+      MarketDataPointReader.create({
+        folder: options.folder,
+        defaultSources: {
+          cryptoProviders: [...CONFIG.READER.defaultSources.cryptoProviders],
+          includeChainlink: CONFIG.READER.defaultSources.includeChainlink,
+          includePolymarket: CONFIG.READER.defaultSources.includePolymarket
+        },
+        defaultMaxDistanceMs: CONFIG.READER.maxDistanceMs,
+        defaultOrderbookLevels: CONFIG.READER.orderbookLevels
+      });
   }
 
   /**
@@ -82,85 +88,7 @@ export class PersistedEventStream {
   /**
    * @section private:methods
    */
-
-  private async collectGzipFiles(dirPath: string, collector: string[]): Promise<void> {
-    const entries = await readdir(dirPath, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const fullPath = path.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        await this.collectGzipFiles(fullPath, collector);
-      } else {
-        const isGzip = entry.isFile() && entry.name.endsWith(".ndjson.gz");
-        if (isGzip) {
-          collector.push(fullPath);
-        }
-      }
-    }
-  }
-
-  private parseEvents(fileBytes: Buffer): StoredEvent[] {
-    const decompressed = gunzipSync(fileBytes).toString("utf8");
-    const lines = decompressed
-      .split("\n")
-      .map((line) => {
-        return line.trim();
-      })
-      .filter((line) => {
-        return line.length > 0;
-      });
-    const events = lines.map((line) => {
-      const parsed = JSON.parse(line) as StoredEvent;
-      return parsed;
-    });
-    return events;
-  }
-
-  private filterByTimestamp(events: StoredEvent[]): StoredEvent[] {
-    const filteredEvents = events.filter((event) => {
-      let keep = true;
-
-      if (this.minIngestedAtExclusive !== null) {
-        keep = event.ingestedAt > this.minIngestedAtExclusive;
-      }
-
-      return keep;
-    });
-    return filteredEvents;
-  }
-
-  private sortChronologically(events: StoredEvent[]): StoredEvent[] {
-    const sorted = [...events].sort((left, right) => {
-      const ingestedOrder = left.ingestedAt - right.ingestedAt;
-      const sequenceOrder = left.sequence - right.sequence;
-      const order = ingestedOrder === 0 ? sequenceOrder : ingestedOrder;
-      return order;
-    });
-    return sorted;
-  }
-
-  private async loadIfNeeded(): Promise<void> {
-    if (!this.isLoaded) {
-      const files: string[] = [];
-      await this.collectGzipFiles(this.folder, files);
-      const sortedFiles = [...files].sort((left, right) => {
-        return left.localeCompare(right);
-      });
-
-      for (const filePath of sortedFiles) {
-        const fileBytes = await readFile(filePath);
-        const parsedEvents = this.parseEvents(fileBytes);
-        const filteredEvents = this.filterByTimestamp(parsedEvents);
-        const sortedEvents = this.sortChronologically(filteredEvents);
-        this.events.push(...sortedEvents);
-      }
-
-      const globallySorted = this.sortChronologically(this.events);
-      this.events.length = 0;
-      this.events.push(...globallySorted);
-      this.isLoaded = true;
-    }
-  }
+  // empty
 
   /**
    * @section protected:methods
@@ -172,15 +100,14 @@ export class PersistedEventStream {
    * @section public:methods
    */
 
-  public async readNext(): Promise<StoredEvent | null> {
-    await this.loadIfNeeded();
-    const event = this.events[this.currentIndex] ?? null;
+  public async read(options: ReadDataPointOptions): Promise<MarketDataPoint | null> {
+    const datapoint = await this.reader.read(options);
+    return datapoint;
+  }
 
-    if (event) {
-      this.currentIndex += 1;
-    }
-
-    return event;
+  public async readRange(options: ReadDataPointRangeOptions): Promise<MarketDataPoint[]> {
+    const datapoints = await this.reader.readRange(options);
+    return datapoints;
   }
 
   /**

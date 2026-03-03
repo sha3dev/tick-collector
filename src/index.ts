@@ -5,6 +5,10 @@ import { CollectorApp } from "./collector/runtime/collector-app.ts";
 import { CollectorCli } from "./collector/runtime/collector-cli.ts";
 export { PersistedEventStream } from "./collector/stream/persisted-event-stream.ts";
 export type { PersistedEventStreamOptions } from "./collector/stream/persisted-event-stream.ts";
+export type { MarketDataPoint, DataPointCoverage, SelectedEventMeta } from "./collector/query/types/market-data-point.ts";
+export type { ReadDataPointOptions } from "./collector/query/types/read-data-point-options.ts";
+export type { ReadDataPointRangeOptions } from "./collector/query/types/read-data-point-range-options.ts";
+export type { ReadSourcesFilter } from "./collector/query/types/read-sources-filter.ts";
 
 export function buildCollectorApp(outputDir?: string): CollectorApp {
   const app = CollectorApp.create({

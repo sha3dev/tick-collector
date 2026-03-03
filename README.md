@@ -65,11 +65,13 @@ Chronological partitioning by ingest hour:
 data/
   journal/YYYY/MM/DD/HH/part-XXXXXXXX.ndjson.gz
   manifests/YYYY/MM/DD/HH/part-XXXXXXXX.manifest.json
+  manifests/YYYY/MM/DD/HH/part-XXXXXXXX.index.json
 ```
 
 Manifest fields:
 
 - file
+- indexFile
 - minIngestedAt
 - maxIngestedAt
 - eventCount
@@ -113,6 +115,9 @@ Exports from `src/index.ts`:
 
 - `buildCollectorApp(outputDir?: string): CollectorApp`
 - `PersistedEventStream`
+- `ReadDataPointOptions`
+- `ReadDataPointRangeOptions`
+- `MarketDataPoint`
 
 `CollectorApp` public methods:
 
@@ -121,24 +126,31 @@ Exports from `src/index.ts`:
 
 `PersistedEventStream`:
 
-- `new PersistedEventStream({ folder, minIngestedAtExclusive? })`
-- `readNext(): Promise<StoredEvent | null>`
+- `new PersistedEventStream({ folder })`
+- `read({ timestamp, marketSlug, sources?, maxDistanceMs?, orderbookLevels? }): Promise<MarketDataPoint | null>`
+- `readRange({ startTimestamp, endTimestamp, stepMs, marketSlug, sources?, maxDistanceMs?, orderbookLevels? }): Promise<MarketDataPoint[]>`
 
 Example:
 
 ```ts
 import { PersistedEventStream } from "@sha3/tick-collector";
 
-const stream = new PersistedEventStream({ folder: "./data", minIngestedAtExclusive: Date.now() - 60_000 });
+const stream = new PersistedEventStream({ folder: "./data" });
+const datapoint = await stream.read({
+  timestamp: Date.now(),
+  marketSlug: "btc-updown-5m-1772472600",
+  sources: { cryptoProviders: ["binance", "coinbase", "kraken", "okx"], includeChainlink: true, includePolymarket: true },
+  maxDistanceMs: 30_000,
+  orderbookLevels: 20
+});
 
-for (;;) {
-  const event = await stream.readNext();
-  if (!event) {
-    break;
-  }
-
-  console.log(event.ingestedAt, event.eventType);
+if (datapoint) {
+  console.log(datapoint.polymarket.upPrice, datapoint.coverage.missingFields);
 }
+
+const range = await stream.readRange({ startTimestamp: Date.now() - 60_000, endTimestamp: Date.now(), stepMs: 5_000, marketSlug: "btc-updown-5m-1772472600" });
+
+console.log("points", range.length);
 ```
 
 ## Configuration Reference (`src/config.ts`)
@@ -159,6 +171,14 @@ for (;;) {
   - Flush interval for incremental gzip writes.
 - `CONFIG.COLLECTOR.maxGzipPartBytes`
   - Size threshold for gzip part rotation.
+- `CONFIG.READER.defaultSources`
+  - Default sources for datapoint reads (crypto providers + chainlink/polymarket toggles).
+- `CONFIG.READER.maxDistanceMs`
+  - Maximum temporal distance allowed for nearest-event selection.
+- `CONFIG.READER.orderbookLevels`
+  - Top-N bids/asks returned in datapoint orderbooks.
+- `CONFIG.READER.tieBreakerPolicy`
+  - Tie break rule for nearest events (`prefer-past`).
 
 Example:
 

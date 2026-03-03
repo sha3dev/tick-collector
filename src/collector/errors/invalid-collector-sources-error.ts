@@ -46,15 +46,21 @@ export class InvalidCollectorSourcesError extends Error {
    */
 
   public readonly configuredSources: readonly string[];
+  public readonly unsupportedSource: string | null;
 
   /**
    * @section constructor
    */
 
-  public constructor(configuredSources: readonly string[]) {
-    super(`invalid collector sources: expected at least one source, got [${configuredSources.join(", ")}]`);
+  public constructor(configuredSources: readonly string[], unsupportedSource: string | null = null) {
+    const message =
+      unsupportedSource === null
+        ? `invalid collector sources: expected at least one source, got [${configuredSources.join(", ")}]`
+        : `invalid collector sources: unsupported source="${unsupportedSource}" in [${configuredSources.join(", ")}]`;
+    super(message);
     this.name = "InvalidCollectorSourcesError";
     this.configuredSources = configuredSources;
+    this.unsupportedSource = unsupportedSource;
   }
 
   /**
@@ -68,7 +74,12 @@ export class InvalidCollectorSourcesError extends Error {
    */
 
   public static fromConfiguredSources(configuredSources: readonly string[]): InvalidCollectorSourcesError {
-    const error = new InvalidCollectorSourcesError(configuredSources);
+    const error = new InvalidCollectorSourcesError(configuredSources, null);
+    return error;
+  }
+
+  public static fromUnsupportedSource(configuredSources: readonly string[], unsupportedSource: string): InvalidCollectorSourcesError {
+    const error = new InvalidCollectorSourcesError(configuredSources, unsupportedSource);
     return error;
   }
 

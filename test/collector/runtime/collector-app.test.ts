@@ -88,6 +88,20 @@ test("collector app create fails when enabledSources has no effective sources", 
   }, InvalidCollectorSourcesError);
 });
 
+test("collector app create fails when enabledSources includes unsupported source", () => {
+  assert.throws(() => {
+    CollectorApp.create({
+      outputDir: "data",
+      flushIntervalMs: 60_000,
+      maxGzipPartBytes: 10_000,
+      symbols: ["btc", "eth", "sol", "xrp"],
+      windows: ["5m", "15m"],
+      enabledSources: ["unsupported-provider" as never],
+      coalesceIntervalMs: 500
+    });
+  }, InvalidCollectorSourcesError);
+});
+
 test("collector app create only builds selected adapters", () => {
   const originalCryptoCreate = CryptoFeedAdapter.create;
   const originalPolymarketCreate = PolymarketFeedAdapter.create;

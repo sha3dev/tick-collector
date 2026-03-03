@@ -60,8 +60,10 @@ test("gzip rotating writer writes ndjson and rotates by size", async () => {
   const files = await listFilesRecursively(root);
   const gzipFiles = files.filter((file) => file.endsWith(".ndjson.gz"));
   const manifestFiles = files.filter((file) => file.endsWith(".manifest.json"));
+  const indexFiles = files.filter((file) => file.endsWith(".index.json"));
   assert.equal(gzipFiles.length >= 1, true);
   assert.equal(manifestFiles.length >= 1, true);
+  assert.equal(indexFiles.length >= 1, true);
 
   const firstGzipPath = gzipFiles[0] ?? "";
   const firstGzip = await readFile(firstGzipPath);

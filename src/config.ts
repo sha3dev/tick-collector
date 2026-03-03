@@ -7,6 +7,12 @@ const CONFIG = {
     outputDir: "data",
     flushIntervalMs: 60_000,
     maxGzipPartBytes: 64 * 1024 * 1024
+  },
+  READER: {
+    defaultSources: { cryptoProviders: ["binance", "coinbase", "kraken", "okx"], includeChainlink: true, includePolymarket: true },
+    maxDistanceMs: 30_000,
+    orderbookLevels: 20,
+    tieBreakerPolicy: "prefer-past"
   }
 } as const;
 

@@ -22,6 +22,7 @@
 
 export type PartManifest = {
   file: string;
+  indexFile: string;
   minIngestedAt: number;
   maxIngestedAt: number;
   eventCount: number;

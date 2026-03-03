@@ -24,6 +24,7 @@ import type { StoredEvent } from "../types/stored-event.ts";
  */
 
 const MIN_COALESCER_FLUSH_MS = 50;
+const SUPPORTED_CRYPTO_PROVIDERS = ["binance", "coinbase", "kraken", "okx", "chainlink"] as const;
 
 /**
  * @section types
@@ -149,6 +150,10 @@ export class CollectorApp {
       if (source === "polymarket") {
         polymarketEnabled = true;
       } else {
+        const isSupported = SUPPORTED_CRYPTO_PROVIDERS.includes(source);
+        if (!isSupported) {
+          throw InvalidCollectorSourcesError.fromUnsupportedSource(enabledSources, source);
+        }
         cryptoProviders.push(source);
       }
     }

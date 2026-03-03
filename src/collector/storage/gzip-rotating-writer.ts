@@ -11,6 +11,7 @@ import { gzipSync } from "node:zlib";
  */
 
 import { StorageWriteError } from "../errors/storage-write-error.ts";
+import type { EventIndexCandidate, EventIndexFile } from "../query/types/event-index-types.ts";
 import type { StoredEvent } from "../types/stored-event.ts";
 import type { GzipRotatingWriterOptions, PartManifest } from "../types/storage-types.ts";
 
@@ -27,12 +28,15 @@ const BYTE_UNITS = 1024;
 type ActivePartState = {
   partPath: string;
   manifestPath: string;
+  indexPath: string;
   bytes: number;
   minIngestedAt: number;
   maxIngestedAt: number;
   eventCount: number;
   sources: Set<string>;
   eventTypes: Set<string>;
+  nextLineIndex: number;
+  indexCandidates: EventIndexCandidate[];
 };
 
 export class GzipRotatingWriter {
@@ -104,15 +108,17 @@ export class GzipRotatingWriter {
     return parts;
   }
 
-  private buildPartPaths(ingestedAt: number): { partPath: string; manifestPath: string } {
+  private buildPartPaths(ingestedAt: number): { partPath: string; manifestPath: string; indexPath: string } {
     const parts = this.toTimeParts(ingestedAt);
     const fileName = `part-${String(this.partCounter).padStart(8, "0")}.ndjson.gz`;
     const manifestFileName = fileName.replace(".ndjson.gz", ".manifest.json");
+    const indexFileName = fileName.replace(".ndjson.gz", ".index.json");
     const journalDir = path.join(this.options.outputDir, "journal", parts.year, parts.month, parts.day, parts.hour);
     const manifestsDir = path.join(this.options.outputDir, "manifests", parts.year, parts.month, parts.day, parts.hour);
     const partPath = path.join(journalDir, fileName);
     const manifestPath = path.join(manifestsDir, manifestFileName);
-    const paths = { partPath, manifestPath };
+    const indexPath = path.join(manifestsDir, indexFileName);
+    const paths = { partPath, manifestPath, indexPath };
     return paths;
   }
 
@@ -121,6 +127,7 @@ export class GzipRotatingWriter {
     const eventTypes = Array.from(activePart.eventTypes.values()).sort((left, right) => left.localeCompare(right));
     const manifest: PartManifest = {
       file: activePart.partPath,
+      indexFile: activePart.indexPath,
       minIngestedAt: activePart.minIngestedAt,
       maxIngestedAt: activePart.maxIngestedAt,
       eventCount: activePart.eventCount,
@@ -129,6 +136,11 @@ export class GzipRotatingWriter {
       createdAt: new Date().toISOString()
     };
     return manifest;
+  }
+
+  private buildIndexFile(activePart: ActivePartState): EventIndexFile {
+    const indexFile: EventIndexFile = { candidates: activePart.indexCandidates };
+    return indexFile;
   }
 
   private async openPart(ingestedAt: number): Promise<void> {
@@ -141,12 +153,15 @@ export class GzipRotatingWriter {
     this.activePart = {
       partPath: paths.partPath,
       manifestPath: paths.manifestPath,
+      indexPath: paths.indexPath,
       bytes: 0,
       minIngestedAt: ingestedAt,
       maxIngestedAt: ingestedAt,
       eventCount: 0,
       sources: new Set<string>(),
-      eventTypes: new Set<string>()
+      eventTypes: new Set<string>(),
+      nextLineIndex: 0,
+      indexCandidates: []
     };
   }
 
@@ -170,6 +185,35 @@ export class GzipRotatingWriter {
     }
   }
 
+  private async flushPartIndex(): Promise<void> {
+    if (this.activePart) {
+      const indexFile = this.buildIndexFile(this.activePart);
+      const serialized = JSON.stringify(indexFile);
+      await writeFile(this.activePart.indexPath, serialized, "utf8");
+    }
+  }
+
+  private appendIndexCandidates(events: StoredEvent[]): void {
+    if (this.activePart) {
+      for (const event of events) {
+        const candidate: EventIndexCandidate = {
+          partPath: this.activePart.partPath,
+          ingestedAt: event.ingestedAt,
+          sequence: event.sequence,
+          lineIndex: this.activePart.nextLineIndex,
+          source: event.source,
+          eventType: event.eventType,
+          provider: event.provider,
+          symbol: event.symbol,
+          marketSlug: event.marketSlug,
+          assetId: event.assetId
+        };
+        this.activePart.indexCandidates.push(candidate);
+        this.activePart.nextLineIndex += 1;
+      }
+    }
+  }
+
   private async rotateIfNeeded(nextChunkBytes: number, ingestedAt: number): Promise<void> {
     if (!this.activePart) {
       await this.openPart(ingestedAt);
@@ -180,6 +224,7 @@ export class GzipRotatingWriter {
       const shouldRotate = nextBytes > this.options.maxPartBytes && this.activePart.eventCount > 0;
       if (shouldRotate) {
         await this.flushPartManifest();
+        await this.flushPartIndex();
         await this.openPart(ingestedAt);
       }
     }
@@ -209,6 +254,7 @@ export class GzipRotatingWriter {
           await writeFile(this.activePart.partPath, compressed, { flag: "a" });
           this.activePart.bytes += chunkBytes;
           this.updatePartStats(events);
+          this.appendIndexCandidates(events);
         }
       }
     }
@@ -252,6 +298,7 @@ export class GzipRotatingWriter {
 
     await this.flush();
     await this.flushPartManifest();
+    await this.flushPartIndex();
   }
 
   public static bytesToMegabytes(bytes: number): number {
