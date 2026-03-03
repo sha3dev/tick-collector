@@ -201,7 +201,14 @@ if (datapoint) {
   console.log(datapoint.polymarket.upPrice, datapoint.coverage.missingFields);
 }
 
-const range = await stream.readRange({ startTimestamp: Date.now() - 60_000, endTimestamp: Date.now(), stepMs: 5_000, symbol: "btc", marketType: "5m" });
+const range = await stream.readRange({
+  startTimestamp: Date.now() - 60_000,
+  endTimestamp: Date.now(),
+  stepMs: 5_000,
+  symbol: "btc",
+  marketType: "5m",
+  maxDistanceMs: 30_000
+});
 
 console.log("points", range.length);
 ```
