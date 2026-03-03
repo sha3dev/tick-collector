@@ -186,7 +186,15 @@ export class PolymarketMarketScheduler {
       this.marketContextByAssetId.delete(assetId);
     }
     for (const [assetId, context] of options.nextMarketContextByAssetId.entries()) {
-      this.marketContextByAssetId.set(assetId, context);
+      // Only update context if this asset is newly subscribed or if it's not already
+      // tracked by another window with a potentially different context.
+      // If the asset is already in subscribedAssetIds, it means it was either
+      // just subscribed (in toSubscribe) or it's already tracked by another window.
+      // In the latter case, we should preserve the existing context to avoid
+      // overwriting it with context from a different window.
+      if (options.toSubscribe.includes(assetId) || !this.subscribedAssetIds.has(assetId)) {
+        this.marketContextByAssetId.set(assetId, context);
+      }
     }
     if (options.toUnsubscribe.length > 0) {
       this.streamService.unsubscribe({ assetIds: options.toUnsubscribe });

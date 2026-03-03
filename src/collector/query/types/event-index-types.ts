@@ -51,3 +51,7 @@ export type EventSelectionQuery = {
   assetId?: string;
   maxDistanceMs: number;
 };
+
+export type EventRangeQuery = { startTimestamp: number; endTimestampExclusive: number; symbol: string; marketType: string };
+
+export type SymbolMarketTypeBoundsQuery = { symbol: string; marketType: string };

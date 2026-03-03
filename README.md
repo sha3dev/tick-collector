@@ -140,6 +140,11 @@ Exports from `src/index.ts`:
 - `ReadDataPointOptions`
 - `ReadDataPointRangeOptions`
 - `MarketDataPoint`
+- `CreateWindowIteratorOptions`
+- `WindowEventBatch`
+- `WindowEventIterator`
+- `WindowIteratorAvailability`
+- `WindowIteratorNextResult`
 
 `CollectorApp` public methods:
 
@@ -151,6 +156,7 @@ Exports from `src/index.ts`:
 - `new PersistedEventStream({ folder })`
 - `read({ timestamp, symbol, marketType, sources?, maxDistanceMs?, orderbookLevels? }): Promise<MarketDataPoint | null>`
 - `readRange({ startTimestamp, endTimestamp, stepMs, symbol, marketType, sources?, maxDistanceMs?, orderbookLevels? }): Promise<MarketDataPoint[]>`
+- `createWindowIterator({ symbol, marketType, startTimestamp?, pollIntervalMs?, signal? }): WindowEventIterator`
 
 ### Method Parameters
 
@@ -182,6 +188,19 @@ Exports from `src/index.ts`:
 - `symbol`, `marketType`, `sources?`, `maxDistanceMs?`, `orderbookLevels?`:
   - Same meaning as in `read(options)`.
 
+`createWindowIterator(options)`:
+
+- `symbol`:
+  - Asset symbol (`btc`, `eth`, `sol`, `xrp`).
+- `marketType`:
+  - Window size (`5m` or `15m`).
+- `startTimestamp` (optional):
+  - Starting cursor timestamp. If omitted, iteration starts from the oldest available aligned window.
+- `pollIntervalMs` (optional):
+  - Poll frequency while waiting for the next window to close in continuous mode.
+- `signal` (optional):
+  - `AbortSignal` to stop iteration.
+
 Example:
 
 ```ts
@@ -211,6 +230,16 @@ const range = await stream.readRange({
 });
 
 console.log("points", range.length);
+
+const iterator = stream.createWindowIterator({ symbol: "btc", marketType: "5m" });
+
+const availability = await iterator.getAvailability();
+console.log("availableWindows", availability.availableWindows);
+
+const nextWindow = await iterator.next();
+if (!nextWindow.done && nextWindow.value) {
+  console.log(nextWindow.value.windowStartAt, nextWindow.value.events.length);
+}
 ```
 
 ## Configuration Reference (`src/config.ts`)

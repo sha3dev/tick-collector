@@ -12,7 +12,7 @@ import { gunzipSync } from "node:zlib";
 
 import { EventIndexError } from "../errors/event-index-error.ts";
 import type { StoredEvent } from "../types/stored-event.ts";
-import type { EventIndexCandidate, EventIndexFile, EventSelectionQuery } from "./types/event-index-types.ts";
+import type { EventIndexCandidate, EventIndexFile, EventRangeQuery, EventSelectionQuery, SymbolMarketTypeBoundsQuery } from "./types/event-index-types.ts";
 
 /**
  * @section consts
@@ -27,6 +27,7 @@ import type { EventIndexCandidate, EventIndexFile, EventSelectionQuery } from ".
 type EventIndexRepositoryOptions = { folder: string };
 
 type EventSelectionResult = { event: StoredEvent; candidate: EventIndexCandidate };
+type SymbolMarketTypeBounds = { minIngestedAt: number | null; maxIngestedAt: number | null };
 
 export class EventIndexRepository {
   /**
@@ -48,6 +49,7 @@ export class EventIndexRepository {
   private readonly folder: string;
   private readonly candidates: EventIndexCandidate[];
   private readonly eventsByPartPath: Map<string, StoredEvent[]>;
+  private readonly loadedIndexFilePaths: Set<string>;
 
   /**
    * @section public:properties
@@ -63,6 +65,7 @@ export class EventIndexRepository {
     this.folder = options.folder;
     this.candidates = [];
     this.eventsByPartPath = new Map<string, StoredEvent[]>();
+    this.loadedIndexFilePaths = new Set<string>();
     this.isLoaded = false;
   }
 
@@ -113,27 +116,17 @@ export class EventIndexRepository {
 
   private async loadIndicesIfNeeded(): Promise<void> {
     if (!this.isLoaded) {
-      try {
-        const manifestRoot = this.toManifestRootFolder();
-        const indexFiles: string[] = [];
-        await this.collectIndexFiles(manifestRoot, indexFiles);
-
-        for (const indexFilePath of indexFiles) {
-          const raw = await readFile(indexFilePath, "utf8");
-          const indexFile = this.parseIndexFile(raw);
-          this.candidates.push(...indexFile.candidates);
-        }
-
-        this.isLoaded = true;
-      } catch (error: unknown) {
-        const errorCode = (error as NodeJS.ErrnoException).code ?? "";
-        if (errorCode === "ENOENT") {
-          this.isLoaded = true;
-        } else {
-          throw EventIndexError.fromCause(`failed loading index files from folder=${this.folder}`, error);
-        }
-      }
+      await this.refreshIndices();
+      this.isLoaded = true;
     }
+  }
+
+  private sortCandidatesByDistance(filtered: EventIndexCandidate[], timestamp: number): EventIndexCandidate[] {
+    const sorted = [...filtered].sort((left, right) => {
+      const order = this.compareCandidateDistance(left, right, timestamp);
+      return order;
+    });
+    return sorted;
   }
 
   private matchesQuery(candidate: EventIndexCandidate, query: EventSelectionQuery): boolean {
@@ -184,14 +177,18 @@ export class EventIndexRepository {
       const match = this.matchesQuery(candidate, query);
       return match;
     });
-    const sorted = [...filtered].sort((left, right) => {
-      const order = this.compareCandidateDistance(left, right, query.timestamp);
-      return order;
-    });
+    const sorted = this.sortCandidatesByDistance(filtered, query.timestamp);
     const selected = sorted[0] ?? null;
     const withinDistance = selected !== null ? Math.abs(selected.ingestedAt - query.timestamp) <= query.maxDistanceMs : false;
     const candidate = withinDistance ? selected : null;
     return candidate;
+  }
+
+  private compareCandidateOrder(left: EventIndexCandidate, right: EventIndexCandidate): number {
+    const byTime = left.ingestedAt - right.ingestedAt;
+    const bySequence = byTime === 0 ? left.sequence - right.sequence : byTime;
+    const byLine = bySequence === 0 ? left.lineIndex - right.lineIndex : bySequence;
+    return byLine;
   }
 
   private parsePartEvents(fileBytes: Buffer): StoredEvent[] {
@@ -222,6 +219,36 @@ export class EventIndexRepository {
     return events;
   }
 
+  private isSymbolMarketMatch(candidate: EventIndexCandidate, query: SymbolMarketTypeBoundsQuery): boolean {
+    const isCryptoMatch = candidate.source === "crypto" && candidate.symbol === query.symbol;
+    const isPolymarketMatch = candidate.source === "polymarket" && candidate.symbol === query.symbol && candidate.marketType === query.marketType;
+    const isMatch = isCryptoMatch || isPolymarketMatch;
+    return isMatch;
+  }
+
+  private matchesRangeQuery(candidate: EventIndexCandidate, query: EventRangeQuery): boolean {
+    const inRange = candidate.ingestedAt >= query.startTimestamp && candidate.ingestedAt < query.endTimestampExclusive;
+    const symbolMarketMatch = this.isSymbolMarketMatch(candidate, { symbol: query.symbol, marketType: query.marketType });
+    const matches = inRange && symbolMarketMatch;
+    return matches;
+  }
+
+  private async toEventsFromCandidates(candidates: EventIndexCandidate[]): Promise<StoredEvent[]> {
+    const sortedCandidates = [...candidates].sort((left, right) => {
+      const order = this.compareCandidateOrder(left, right);
+      return order;
+    });
+    const events: StoredEvent[] = [];
+    for (const candidate of sortedCandidates) {
+      const partEvents = await this.loadPartEvents(candidate.partPath);
+      const event = partEvents[candidate.lineIndex] ?? null;
+      if (event) {
+        events.push(event);
+      }
+    }
+    return events;
+  }
+
   /**
    * @section protected:methods
    */
@@ -232,10 +259,38 @@ export class EventIndexRepository {
    * @section public:methods
    */
 
+  public async refreshIndices(): Promise<void> {
+    try {
+      const manifestRoot = this.toManifestRootFolder();
+      const indexFiles: string[] = [];
+      await this.collectIndexFiles(manifestRoot, indexFiles);
+      const sortedIndexFiles = [...indexFiles].sort((left, right) => {
+        const order = left.localeCompare(right);
+        return order;
+      });
+      for (const indexFilePath of sortedIndexFiles) {
+        const isLoaded = this.loadedIndexFilePaths.has(indexFilePath);
+        if (!isLoaded) {
+          const raw = await readFile(indexFilePath, "utf8");
+          const indexFile = this.parseIndexFile(raw);
+          this.candidates.push(...indexFile.candidates);
+          this.loadedIndexFilePaths.add(indexFilePath);
+        }
+      }
+    } catch (error: unknown) {
+      const errorCode = (error as NodeJS.ErrnoException).code ?? "";
+      const isMissingManifestFolder = errorCode === "ENOENT";
+      if (!isMissingManifestFolder) {
+        throw EventIndexError.fromCause(`failed loading index files from folder=${this.folder}`, error);
+      }
+    }
+  }
+
   public async findClosestEvent(query: EventSelectionQuery): Promise<EventSelectionResult | null> {
     let result: EventSelectionResult | null = null;
     try {
       await this.loadIndicesIfNeeded();
+      await this.refreshIndices();
       const candidate = this.selectClosestCandidate(query);
 
       if (candidate) {
@@ -247,6 +302,45 @@ export class EventIndexRepository {
       }
     } catch (error: unknown) {
       throw EventIndexError.fromCause(`failed selecting event for eventType=${query.eventType} source=${query.source}`, error);
+    }
+    return result;
+  }
+
+  public async findEventsInRange(query: EventRangeQuery): Promise<StoredEvent[]> {
+    let result: StoredEvent[] = [];
+    try {
+      await this.loadIndicesIfNeeded();
+      await this.refreshIndices();
+      const matchingCandidates = this.candidates.filter((candidate) => {
+        const match = this.matchesRangeQuery(candidate, query);
+        return match;
+      });
+      result = await this.toEventsFromCandidates(matchingCandidates);
+    } catch (error: unknown) {
+      throw EventIndexError.fromCause(
+        `failed selecting events in range symbol=${query.symbol} marketType=${query.marketType} start=${query.startTimestamp} endExclusive=${query.endTimestampExclusive}`,
+        error
+      );
+    }
+    return result;
+  }
+
+  public async findBoundsForSymbolMarketType(query: SymbolMarketTypeBoundsQuery): Promise<SymbolMarketTypeBounds> {
+    let result: SymbolMarketTypeBounds = { minIngestedAt: null, maxIngestedAt: null };
+    try {
+      await this.loadIndicesIfNeeded();
+      await this.refreshIndices();
+      const matchingCandidates = this.candidates.filter((candidate) => {
+        const match = this.isSymbolMarketMatch(candidate, query);
+        return match;
+      });
+      for (const candidate of matchingCandidates) {
+        const nextMin = result.minIngestedAt === null ? candidate.ingestedAt : Math.min(result.minIngestedAt, candidate.ingestedAt);
+        const nextMax = result.maxIngestedAt === null ? candidate.ingestedAt : Math.max(result.maxIngestedAt, candidate.ingestedAt);
+        result = { minIngestedAt: nextMin, maxIngestedAt: nextMax };
+      }
+    } catch (error: unknown) {
+      throw EventIndexError.fromCause(`failed selecting bounds for symbol=${query.symbol} marketType=${query.marketType}`, error);
     }
     return result;
   }
